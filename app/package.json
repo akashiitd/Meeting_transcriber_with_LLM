@@ -1,7 +1,7 @@
 {
   "name": "stenoai",
   "version": "0.1.3",
-  "description": "AI-powered meeting transcription and analysis for Mac",
+  "description": "Local meeting transcription for desktop",
   "main": "main.js",
   "homepage": "https://github.com/ruzin/stenoai",
   "repository": {
@@ -12,6 +12,7 @@
     "start": "electron .",
     "build": "electron-builder",
     "build-mac": "electron-builder --mac",
+    "build-win": "electron-builder --win nsis",
     "build:intel": "electron-builder --mac --x64",
     "build:arm64": "electron-builder --mac --arm64",
     "dist": "electron-builder --publish=never",
@@ -29,7 +30,6 @@
     "transcription",
     "recording",
     "whisper",
-    "ollama",
     "ai",
     "meetings"
   ],
@@ -88,6 +88,17 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "StenoAI needs microphone access to record and transcribe meetings."
       }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "stenoAI-windows-${version}-${arch}.${ext}"
     },
     "dmg": {
       "title": "StenoAI Installer",

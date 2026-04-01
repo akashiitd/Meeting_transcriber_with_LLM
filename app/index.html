@@ -634,6 +634,33 @@
             animation: pulse 1.5s ease-in-out infinite;
         }
 
+        .capture-mode-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #d4d4d8;
+            background: rgba(63, 63, 70, 0.55);
+            border: 1px solid rgba(82, 82, 91, 0.8);
+        }
+
+        .capture-mode-badge.pending {
+            color: #facc15;
+            background: rgba(234, 179, 8, 0.12);
+            border-color: rgba(234, 179, 8, 0.35);
+        }
+
+        .capture-mode-badge.system-mic {
+            color: #86efac;
+            background: rgba(34, 197, 94, 0.12);
+            border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .capture-mode-badge.mic-only {
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.12);
+            border-color: rgba(59, 130, 246, 0.35);
+        }
+
         .live-transcript-content {
             flex: 1;
             overflow-y: auto;
@@ -1390,7 +1417,7 @@
         
         <div class="header-actions">
             <button class="settings-btn" id="debug-btn" title="Debug Logs" style="margin-right: 8px;">🔨</button>
-            <button class="settings-btn" id="ai-settings-btn" title="AI Settings" style="margin-right: 8px;">🧠</button>
+            <button class="settings-btn" id="ai-settings-btn" title="AI Settings" style="display: none; margin-right: 8px;">🧠</button>
             <button class="settings-btn" id="settings-btn" title="Settings">⚙️</button>
         </div>
     </div>
@@ -1401,9 +1428,9 @@
         <div class="sidebar">
             <div class="sidebar-header">
                 <div class="sidebar-title">
-                    <h2>Meetings</h2>
+                    <h2>Transcripts</h2>
                 </div>
-                <input type="text" class="search-input" id="search-input" placeholder="Search meetings...">
+                <input type="text" class="search-input" id="search-input" placeholder="Search transcripts...">
             </div>
             
             <div class="meetings-list" id="meetings-list">
@@ -1422,6 +1449,7 @@
                             <div class="live-indicator-dot"></div>
                             <span>LIVE</span>
                         </div>
+                        <span class="capture-mode-badge pending" id="capture-mode-badge">Starting audio...</span>
                     </div>
                     <span id="live-transcript-time">00:00</span>
                 </div>
@@ -1437,8 +1465,8 @@
             <!-- Empty state -->
             <div class="content-empty" id="empty-state">
                 <div class="content-empty-icon">📝</div>
-                <h3>No meeting selected</h3>
-                <p>Select a meeting from the sidebar or record a new one</p>
+                <h3>No transcript selected</h3>
+                <p>Select a transcript from the sidebar or record a new one</p>
             </div>
 
             <!-- Meeting detail view -->
@@ -1455,13 +1483,13 @@
                             </button>
                         </div>
                         <div style="display: flex; gap: 0px;">
-                            <button class="copy-notes-btn" id="copy-notes-btn" title="Copy all meeting notes to clipboard">
+                            <button class="copy-notes-btn" id="copy-notes-btn" title="Copy all meeting notes to clipboard" style="display: none;">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                                 </svg>
                             </button>
-                            <button class="reprocess-btn" id="reprocess-btn" title="Reprocess current meeting if analysis failed or needs improvement">
+                            <button class="reprocess-btn" id="reprocess-btn" title="Reprocess current meeting if analysis failed or needs improvement" style="display: none;">
                                 Reprocess
                             </button>
                         </div>
@@ -1472,7 +1500,7 @@
                     </div>
                 </div>
 
-                <div class="meeting-section">
+                <div class="meeting-section" style="display: none;">
                     <h2 class="section-title">
                         <span>📋</span> Summary
                     </h2>
@@ -1481,7 +1509,7 @@
                     </div>
                 </div>
 
-                <div class="meeting-section">
+                <div class="meeting-section" style="display: none;">
                     <h2 class="section-title">
                         <span>👥</span> Participants
                     </h2>
@@ -1490,7 +1518,7 @@
                     </div>
                 </div>
 
-                <div class="meeting-section" id="discussion-areas-section">
+                <div class="meeting-section" id="discussion-areas-section" style="display: none;">
                     <h2 class="section-title">
                         <span>💬</span> Key Topics
                     </h2>
@@ -1499,7 +1527,7 @@
                     </div>
                 </div>
 
-                <div class="meeting-section">
+                <div class="meeting-section" style="display: none;">
                     <h2 class="section-title">
                         <span>🔑</span> Key Points
                     </h2>
@@ -1508,7 +1536,7 @@
                     </ul>
                 </div>
 
-                <div class="meeting-section">
+                <div class="meeting-section" style="display: none;">
                     <h2 class="section-title">
                         <span>✅</span> Action Items
                     </h2>
@@ -1603,11 +1631,11 @@
                     </div>
                 </div>
                 
-                <div class="setup-step" id="step-ollama">
+                <div class="setup-step" id="step-ollama" style="display: none;">
                     <div class="step-icon">🧠</div>
                     <div class="step-content">
-                        <h3>Install Ollama + AI Model</h3>
-                        <p>Homebrew (if needed) → Ollama → Llama 3.2 model (~2GB)</p>
+                        <h3>Install ffmpeg</h3>
+                        <p>Audio/video processing toolkit for advanced audio handling</p>
                         <div class="step-status" id="ollama-status">Pending...</div>
                         <div class="progress-bar">
                             <div class="progress-fill" id="ollama-progress"></div>
@@ -1678,7 +1706,6 @@ Commands and output will appear here...
                         <li>Python virtual environment</li>
                         <li>Audio recording libraries</li>
                         <li>Whisper speech recognition</li>
-                        <li>Ollama AI service and models</li>
                         <li>ffmpeg audio processing toolkit</li>
                     </ul>
                 </div>
@@ -1738,7 +1765,7 @@ Session started - waiting for activity...
     </div>
 
     <!-- AI Settings Panel (slides in from right) -->
-    <div class="settings-panel" id="ai-settings-panel">
+    <div class="settings-panel" id="ai-settings-panel" style="display: none;">
         <div class="settings-header">
             <h2>🧠 AI Settings</h2>
             <button class="close-settings" onclick="toggleAISettings()">✕</button>
@@ -1796,6 +1823,7 @@ Session started - waiting for activity...
         const liveTranscriptContent = document.getElementById('live-transcript-content');
         const liveTranscriptEmpty = document.getElementById('live-transcript-empty');
         const liveTranscriptTime = document.getElementById('live-transcript-time');
+        const captureModeBadge = document.getElementById('capture-mode-badge');
         
         // Update elements
         const updateBanner = document.getElementById('update-banner');
@@ -1835,6 +1863,7 @@ Session started - waiting for activity...
         let recordingTimer = null;
         let processingMeetings = new Set();
         let meetingsLastLoaded = 0; // Cache timestamp
+        let currentCaptureMode = null;
         
         // Update checking variables
         let updateInfo = null;
@@ -1874,7 +1903,32 @@ Session started - waiting for activity...
             }
             recordingStartTime = null;
         }
-        
+
+        function updateCaptureModeBadge(mode) {
+            currentCaptureMode = mode;
+
+            if (!captureModeBadge) {
+                return;
+            }
+
+            captureModeBadge.className = 'capture-mode-badge';
+
+            if (mode === 'system+microphone') {
+                captureModeBadge.classList.add('system-mic');
+                captureModeBadge.textContent = 'Mode: system + mic';
+                return;
+            }
+
+            if (mode === 'microphone-only') {
+                captureModeBadge.classList.add('mic-only');
+                captureModeBadge.textContent = 'Mode: mic only';
+                return;
+            }
+
+            captureModeBadge.classList.add('pending');
+            captureModeBadge.textContent = uiState === 'recording' ? 'Starting audio...' : 'Waiting for audio...';
+        }
+
         function setUIState(state) {
             uiState = state;
             log(`UI State: ${state}`);
@@ -1888,6 +1942,7 @@ Session started - waiting for activity...
                     sessionNameInput.disabled = false;
                     stopRecordingTimer();
                     setStatus('ready', 'Ready');
+                    updateCaptureModeBadge(null);
                     // Hide live transcript panel
                     hideLiveTranscript();
                     break;
@@ -1899,6 +1954,7 @@ Session started - waiting for activity...
                     sessionNameInput.disabled = true;
                     stopBtn.disabled = false;
                     startRecordingTimer();
+                    updateCaptureModeBadge('starting');
                     // Show live transcript panel
                     showLiveTranscript();
                     break;
@@ -1910,6 +1966,7 @@ Session started - waiting for activity...
                     sessionNameInput.disabled = true;
                     stopRecordingTimer();
                     setStatus('processing', 'Processing...');
+                    updateCaptureModeBadge(null);
                     // Hide live transcript panel
                     hideLiveTranscript();
                     break;
@@ -1988,6 +2045,20 @@ Session started - waiting for activity...
         ipcRenderer.on('realtime-transcription-stopped', () => {
             log('Real-time transcription stopped');
         });
+
+        ipcRenderer.on('capture-mode-changed', (event, data) => {
+            const mode = data?.mode || null;
+
+            if (mode && mode !== currentCaptureMode) {
+                if (mode === 'system+microphone') {
+                    log('🔊 Capture mode: system audio + microphone');
+                } else if (mode === 'microphone-only') {
+                    log('🎤 Capture mode: microphone only');
+                }
+            }
+
+            updateCaptureModeBadge(mode);
+        });
         
         function startStatusMonitoring() {
             // Only check status when we think we're recording
@@ -2055,6 +2126,12 @@ Session started - waiting for activity...
                 return 'Unknown';
             }
         }
+
+        function getMeetingPreview(meeting) {
+            const preview = meeting.transcript_preview || meeting.transcript || '';
+            const normalized = preview.replace(/\s+/g, ' ').trim();
+            return normalized || 'Transcript will appear here after processing.';
+        }
         
         // Delete meeting function
         async function deleteMeeting(index, event) {
@@ -2063,7 +2140,7 @@ Session started - waiting for activity...
             const meeting = filteredMeetings[index];
             if (!meeting) return;
             
-            const confirmed = confirm(`Delete meeting "${meeting.session_info?.name || 'Untitled Meeting'}"?\n\nThis will delete the transcript, summary, and all associated files.`);
+            const confirmed = confirm(`Delete meeting "${meeting.session_info?.name || 'Untitled Meeting'}"?\n\nThis will delete the transcript and associated files.`);
             if (!confirmed) return;
             
             try {
@@ -2104,14 +2181,10 @@ Session started - waiting for activity...
                 const query = searchQuery.toLowerCase();
                 filteredMeetings = meetings.filter(meeting => {
                     const name = (meeting.session_info?.name || '').toLowerCase();
-                    const summary = (meeting.summary || '').toLowerCase();
-                    const keyPoints = (meeting.key_points || []).join(' ').toLowerCase();
-                    const actionItems = (meeting.action_items || []).join(' ').toLowerCase();
+                    const transcript = getMeetingPreview(meeting).toLowerCase();
                     
                     return name.includes(query) || 
-                           summary.includes(query) || 
-                           keyPoints.includes(query) || 
-                           actionItems.includes(query);
+                           transcript.includes(query);
                 });
             }
             renderMeetingsList();
@@ -2133,7 +2206,7 @@ Session started - waiting for activity...
                 meetingsList.innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #666;">
                         <div style="font-size: 24px; margin-bottom: 8px;">⟳</div>
-                        <p>Loading meetings...</p>
+                        <p>Loading transcripts...</p>
                     </div>
                 `;
             }
@@ -2144,7 +2217,7 @@ Session started - waiting for activity...
                     meetings = result.meetings || [];
                     meetingsLastLoaded = now;
                     filterMeetings(); // Apply current search filter
-                    log(`Loaded ${meetings.length} meetings`);
+                    log(`Loaded ${meetings.length} transcripts`);
                 } else {
                     throw new Error(result.error || 'Unknown error');
                 }
@@ -2155,7 +2228,7 @@ Session started - waiting for activity...
                     meetingsList.innerHTML = `
                         <div style="padding: 20px; text-align: center; color: #666;">
                             <div style="font-size: 24px; margin-bottom: 8px;">⚠️</div>
-                            <p>Failed to load meetings</p>
+                            <p>Failed to load transcripts</p>
                             <p style="font-size: 12px; margin-top: 4px;">Using cached data if available</p>
                         </div>
                     `;
@@ -2173,7 +2246,7 @@ Session started - waiting for activity...
                 meetingsList.innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #666;">
                         <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
-                        <p>No meetings match "${searchQuery}"</p>
+                        <p>No transcripts match "${searchQuery}"</p>
                         <p style="font-size: 12px; margin-top: 4px;">Try a different search term</p>
                     </div>
                 `;
@@ -2184,8 +2257,8 @@ Session started - waiting for activity...
                 meetingsList.innerHTML = `
                     <div style="padding: 20px; text-align: center; color: #666;">
                         <div style="font-size: 24px; margin-bottom: 8px;">🎙️</div>
-                        <p>No meetings recorded yet</p>
-                        <p style="font-size: 12px; margin-top: 4px;">Start recording to see your meetings here</p>
+                        <p>No transcripts recorded yet</p>
+                        <p style="font-size: 12px; margin-top: 4px;">Start recording to see your transcripts here</p>
                     </div>
                 `;
                 return;
@@ -2202,7 +2275,7 @@ Session started - waiting for activity...
                         <span class="meeting-date">${formatDate(meeting.session_info?.processed_at)}</span>
                     </div>
                     <div class="meeting-preview">
-                        ${(meeting.summary || 'No summary available').substring(0, 100)}...
+                        ${getMeetingPreview(meeting).substring(0, 100)}...
                     </div>
                 </div>
                 `;
@@ -2249,119 +2322,8 @@ Session started - waiting for activity...
                     `🕒 Meeting Duration: ${selectedMeeting.session_info.duration_minutes} minutes` : '📄 Processed');
             detailDuration.textContent = durationText;
             
-            detailSummary.textContent = selectedMeeting.summary || 'No summary available';
-            
-            // Participants
-            if (selectedMeeting.participants && selectedMeeting.participants.length > 0) {
-                detailParticipants.textContent = selectedMeeting.participants.join(', ');
-            } else {
-                detailParticipants.innerHTML = '<span style="color: #666;">No participants identified</span>';
-            }
-
-            // Key topics
-            const detailDiscussionAreas = document.getElementById('detail-discussion-areas');
-            const discussionAreasSection = document.getElementById('discussion-areas-section');
-            detailDiscussionAreas.innerHTML = '';
-            if (selectedMeeting.discussion_areas && selectedMeeting.discussion_areas.length > 0) {
-                discussionAreasSection.style.display = 'block';
-                selectedMeeting.discussion_areas.forEach(area => {
-                    const areaDiv = document.createElement('div');
-                    areaDiv.style.marginBottom = '15px';
-                    areaDiv.style.padding = '12px';
-                    areaDiv.style.background = 'rgba(255, 255, 255, 0.03)';
-                    areaDiv.style.borderRadius = '6px';
-                    areaDiv.style.borderLeft = '3px solid rgba(99, 102, 241, 0.5)';
-
-                    const title = document.createElement('h4');
-                    title.textContent = area.title || 'Discussion Topic';
-                    title.style.margin = '0 0 8px 0';
-                    title.style.color = 'rgba(99, 102, 241, 1)';
-                    title.style.fontSize = '14px';
-                    title.style.fontWeight = '600';
-
-                    const analysis = document.createElement('p');
-                    analysis.textContent = area.analysis || '';
-                    analysis.style.margin = '0';
-                    analysis.style.color = '#ccc';
-                    analysis.style.lineHeight = '1.5';
-
-                    areaDiv.appendChild(title);
-                    areaDiv.appendChild(analysis);
-                    detailDiscussionAreas.appendChild(areaDiv);
-                });
-            } else {
-                discussionAreasSection.style.display = 'none';
-            }
-
-            // Key points
-            detailKeyPoints.innerHTML = '';
-            if (selectedMeeting.key_points && selectedMeeting.key_points.length > 0) {
-                selectedMeeting.key_points.forEach(point => {
-                    const li = document.createElement('li');
-                    li.textContent = point;
-                    detailKeyPoints.appendChild(li);
-                });
-            } else {
-                detailKeyPoints.innerHTML = '<li style="color: #666;">No key points identified</li>';
-            }
-            
-            // Action items
-            detailActionItems.innerHTML = '';
-            if (selectedMeeting.action_items && selectedMeeting.action_items.length > 0) {
-                selectedMeeting.action_items.forEach(item => {
-                    const li = document.createElement('li');
-                    li.textContent = item;
-                    detailActionItems.appendChild(li);
-                });
-            } else {
-                detailActionItems.innerHTML = '<li style="color: #666;">No action items identified</li>';
-            }
-            
             // Transcript
             detailTranscript.textContent = selectedMeeting.transcript || 'No transcript available';
-            
-            // Set reprocess button state based on whether this meeting is currently processing
-            const isCurrentlyProcessing = processingMeeting && processingMeeting.session_info?.summary_file === selectedMeeting.session_info?.summary_file;
-            
-            if (isCurrentlyProcessing) {
-                // Restore processing state
-                reprocessBtn.disabled = true;
-                reprocessBtn.classList.add('processing');
-                reprocessBtn.innerHTML = '<div class="reprocess-spinner"></div>Processing...';
-            } else {
-                // Normal state
-                reprocessBtn.disabled = false;
-                reprocessBtn.classList.remove('processing');
-                reprocessBtn.innerHTML = 'Reprocess';
-            }
-            
-            // TEMPORARY: Show reprocess button for all meetings (for testing)
-            reprocessBtn.style.display = 'flex';
-            
-            /* ORIGINAL LOGIC (commented out for testing):
-            // Show/hide reprocess button based on meeting quality
-            const hasFailedSummary = (
-                !selectedMeeting.summary || 
-                selectedMeeting.summary.includes('No transcript was generated') ||
-                selectedMeeting.summary.includes('detailed analysis failed') ||
-                selectedMeeting.summary.includes('not fully supported') ||
-                (selectedMeeting.overview && (
-                    selectedMeeting.overview.includes('No transcript was generated') ||
-                    selectedMeeting.overview.includes('detailed analysis failed') ||
-                    selectedMeeting.overview.includes('not fully supported')
-                ))
-            );
-            
-            const hasNoParticipants = !selectedMeeting.participants || selectedMeeting.participants.length === 0;
-            const hasNoKeyPoints = !selectedMeeting.key_points || selectedMeeting.key_points.length === 0;
-            
-            // Show reprocess button if meeting appears to have failed summarization
-            if (hasFailedSummary || (hasNoParticipants && hasNoKeyPoints && selectedMeeting.transcript && selectedMeeting.transcript.length > 100)) {
-                reprocessBtn.style.display = 'flex';
-            } else {
-                reprocessBtn.style.display = 'none';
-            }
-            */
         }
         
         
@@ -2402,14 +2364,6 @@ Session started - waiting for activity...
                 if (result.success) {
                     log(`Recording started: ${result.message}`);
                     startStatusMonitoring();
-
-                    // Start real-time transcription
-                    const rtResult = await ipcRenderer.invoke('start-realtime-transcription');
-                    if (rtResult.success) {
-                        log('Real-time transcription started');
-                    } else {
-                        log(`Real-time transcription failed: ${rtResult.error}`);
-                    }
                 } else {
                     log(`Failed to start: ${result.error}`);
                     setUIState('ready');
@@ -2424,14 +2378,6 @@ Session started - waiting for activity...
             log('⏹️ Stopping recording...');
             setUIState('processing');
             stopStatusMonitoring();
-
-            // Stop real-time transcription
-            try {
-                await ipcRenderer.invoke('stop-realtime-transcription');
-                log('Real-time transcription stopped');
-            } catch (error) {
-                log(`Failed to stop real-time transcription: ${error.message}`);
-            }
             
             // Add current session to processing list immediately
             const currentSessionName = sessionNameInput.value.trim() || 'Meeting';
@@ -2444,7 +2390,7 @@ Session started - waiting for activity...
                     processed_at: new Date().toISOString(),
                     duration_seconds: null
                 },
-                summary: 'Pending...',
+                transcript_preview: 'Pending...',
                 key_points: [],
                 action_items: [],
                 transcript: ''
@@ -2458,8 +2404,8 @@ Session started - waiting for activity...
                 const result = await ipcRenderer.invoke('stop-recording-ui');
                 if (result.success) {
                     log(`Recording stopped: ${result.message}`);
-                    log('🔄 Processing audio - transcription and summarization running in background');
-                    log('💡 Meeting list will refresh automatically when processing completes');
+                    log('🔄 Processing audio - transcription running in background');
+                    log('💡 Transcript list will refresh automatically when processing completes');
                     
                     // Return to ready state quickly so user can start another recording if needed
                     setTimeout(() => {
@@ -2629,72 +2575,6 @@ Session started - waiting for activity...
         // Debug button click handler
         debugBtn.addEventListener('click', () => {
             toggleDebug();
-        });
-
-        // AI Settings button click handler
-        aiSettingsBtn.addEventListener('click', () => {
-            toggleAISettings();
-        });
-        
-        // Reprocess button click handler
-        reprocessBtn.addEventListener('click', async () => {
-            if (!selectedMeeting) return;
-            
-            const summaryFile = selectedMeeting.session_info?.summary_file;
-            if (!summaryFile) {
-                log('❌ No summary file found for reprocessing');
-                return;
-            }
-            
-            // Track which meeting is being processed
-            processingMeeting = selectedMeeting;
-            
-            // Show processing state
-            reprocessBtn.disabled = true;
-            reprocessBtn.classList.add('processing');
-            reprocessBtn.innerHTML = '<div class="reprocess-spinner"></div>Processing...';
-            
-            const meetingBeingProcessed = selectedMeeting; // Capture the meeting being processed
-            log(`🔄 Reprocessing meeting: ${meetingBeingProcessed.session_info?.name}`);
-            
-            try {
-                // Call main process to reprocess the meeting
-                const result = await ipcRenderer.invoke('reprocess-meeting', summaryFile);
-                
-                if (result.success) {
-                    log('✅ Meeting reprocessed successfully');
-                    
-                    // Send notification for reprocessing completion
-                    showDesktopNotification('StenoAI - Reprocessing Complete', {
-                        body: `"${meetingBeingProcessed.session_info?.name || 'Meeting'}" has been reanalyzed`,
-                        requireInteraction: false
-                    });
-                    
-                    // Reload meetings to show updated data
-                    await loadMeetings(true);
-                    // Re-select the current meeting to show updated content
-                    const updatedMeetingIndex = filteredMeetings.findIndex(m => 
-                        m.session_info?.summary_file === summaryFile
-                    );
-                    if (updatedMeetingIndex !== -1) {
-                        selectMeeting(updatedMeetingIndex);
-                    }
-                } else {
-                    log(`❌ Reprocessing failed: ${result.error}`);
-                }
-            } catch (error) {
-                log(`❌ Reprocessing error: ${error.message}`);
-            } finally {
-                // Clear processing tracker
-                processingMeeting = null;
-                
-                // Reset button state only if we're still viewing the same meeting
-                if (selectedMeeting && selectedMeeting.session_info?.summary_file === summaryFile) {
-                    reprocessBtn.disabled = false;
-                    reprocessBtn.classList.remove('processing');
-                    reprocessBtn.innerHTML = 'Reprocess';
-                }
-            }
         });
         
         // Copy transcript to clipboard
@@ -2877,7 +2757,7 @@ Session started - waiting for activity...
 
                 try {
                     const result = await ipcRenderer.invoke('update-meeting',
-                        selectedMeeting.session_info.summary_file,
+                        selectedMeeting.session_info.meeting_file || selectedMeeting.session_info.summary_file,
                         { name: newTitle }
                     );
 
@@ -2931,15 +2811,14 @@ Session started - waiting for activity...
             debugLog('Starting First-Time Setup Process');
             debugLog('='.repeat(50));
             
-            const steps = [
-                { id: 'step-microphone', handler: 'request-microphone-permission', name: 'Microphone Access' },
-                { id: 'step-system', handler: 'setup-system-check', name: 'System Check' },
-                { id: 'step-python', handler: 'setup-python', name: 'Python Dependencies' },
-                { id: 'step-whisper', handler: 'setup-whisper', name: 'Whisper Installation' },
-                { id: 'step-ollama', handler: 'setup-ollama-and-model', name: 'Ollama + AI Model' },
-                { id: 'step-ffmpeg', handler: 'setup-ffmpeg', name: 'ffmpeg Installation' },
-                { id: 'step-test', handler: 'setup-test', name: 'System Test' }
-            ];
+                const steps = [
+                    { id: 'step-microphone', handler: 'request-microphone-permission', name: 'Microphone Access' },
+                    { id: 'step-system', handler: 'setup-system-check', name: 'System Check' },
+                    { id: 'step-python', handler: 'setup-python', name: 'Python Dependencies' },
+                    { id: 'step-whisper', handler: 'setup-whisper', name: 'Whisper Installation' },
+                    { id: 'step-ffmpeg', handler: 'setup-ffmpeg', name: 'ffmpeg Installation' },
+                    { id: 'step-test', handler: 'setup-test', name: 'System Test' }
+                ];
             
             for (const step of steps) {
                 const element = document.getElementById(step.id);
@@ -3171,7 +3050,7 @@ Session started - waiting for activity...
                 if (data.meetingData) {
                     // Update the specific meeting with processed data
                     const tempMeetingIndex = meetings.findIndex(meeting => 
-                        meeting.session_info?.name === data.sessionName && meeting.summary === 'Pending...'
+                        meeting.session_info?.name === data.sessionName && meeting.transcript_preview === 'Pending...'
                     );
                     
                     if (tempMeetingIndex !== -1) {
@@ -3193,8 +3072,8 @@ Session started - waiting for activity...
                 }
                 
                 // Show native notification
-                showDesktopNotification('StenoAI - Meeting Notes Ready', {
-                    body: `"${data.sessionName}" has been transcribed and summarized`,
+                showDesktopNotification('StenoAI - Transcript Ready', {
+                    body: `"${data.sessionName}" has been transcribed`,
                     requireInteraction: false
                 });
                 
@@ -3202,7 +3081,7 @@ Session started - waiting for activity...
             } else {
                 // Remove temporary meeting entry on failure
                 meetings = meetings.filter(meeting => 
-                    !(meeting.session_info?.name === data.sessionName && meeting.summary === 'Pending...')
+                    !(meeting.session_info?.name === data.sessionName && meeting.transcript_preview === 'Pending...')
                 );
                 
                 setStatus('ready', 'Processing failed');

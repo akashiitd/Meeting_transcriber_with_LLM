@@ -5,8 +5,7 @@ Simple Audio Recorder & Transcriber for Electron App
 Backend script that handles:
 1. Recording system/microphone audio
 2. Transcribing with Whisper  
-3. Summarizing with Ollama
-4. Saving everything locally
+3. Saving everything locally
 
 Usage (called by Electron):
     python simple_recorder.py start "Meeting Name"
@@ -20,6 +19,8 @@ import asyncio
 import logging
 import json
 import time
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -36,11 +37,6 @@ except ImportError:
     WhisperTranscriber = None
 
 try:
-    from src.summarizer import OllamaSummarizer
-except ImportError:
-    OllamaSummarizer = None
-
-try:
     from src.realtime_transcriber import RealtimeTranscriber, create_realtime_transcriber, TranscriptSegment
 except ImportError:
     RealtimeTranscriber = None
@@ -51,6 +47,22 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def get_app_data_dir() -> Path:
+    """Return a per-user application data directory for the current platform."""
+    override = os.environ.get("STENOAI_APP_DATA_DIR")
+    if override:
+        return Path(override)
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "stenoai"
+    if sys.platform.startswith("win"):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "stenoai"
+        return Path.home() / "AppData" / "Roaming" / "stenoai"
+    return Path.home() / ".config" / "stenoai"
+
 class SimpleRecorder:
     """Simple audio recorder and transcriber."""
     
@@ -58,18 +70,13 @@ class SimpleRecorder:
         # Only initialize if dependencies are available
         self.audio_recorder = AudioRecorder() if AudioRecorder else None
         
-        # Only initialize transcriber/summarizer when needed to save memory
+        # Only initialize the transcriber when needed to save memory
         self.transcriber = None
-        self.summarizer = None
         
-        # Directories - use user data folder for DMG distribution
-        import os
-        
-        # Detect if running from app bundle (DMG install) or development
+        # Directories - use user data folder for packaged app distribution
         current_path = Path(__file__).parent
-        if "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
-            # DMG/Production: Use Application Support folder
-            app_support = Path.home() / "Library" / "Application Support" / "stenoai"
+        if os.environ.get("STENOAI_APP_DATA_DIR") or "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
+            app_support = get_app_data_dir()
             self.recordings_dir = app_support / "recordings"
             self.transcripts_dir = app_support / "transcripts" 
             self.output_dir = app_support / "output"
@@ -85,6 +92,7 @@ class SimpleRecorder:
         
         # State file
         self.state_file = Path("recorder_state.json")
+        self.stop_request_file = Path("recorder_stop.request")
         
         # Global AudioRecorder instance to maintain state across CLI calls
         self.persistent_recorder = None
@@ -103,12 +111,29 @@ class SimpleRecorder:
         """Save recorder state."""
         with open(self.state_file, 'w') as f:
             json.dump(state, f, indent=2)
+
+    def clear_stop_request(self):
+        """Clear any pending stop request file."""
+        if self.stop_request_file.exists():
+            try:
+                self.stop_request_file.unlink()
+            except Exception:
+                pass
+
+    def request_stop(self):
+        """Request a running recorder loop to stop."""
+        self.stop_request_file.write_text(datetime.now().isoformat())
+
+    def should_stop(self) -> bool:
+        """Check whether a stop was requested."""
+        return self.stop_request_file.exists()
     
     def start_recording(self, session_name: str = "Recording") -> str:
         """Start recording audio."""
         state = self.get_state()
         if state.get("recording"):
             raise Exception(f"Already recording: {state.get('current_file', 'unknown file')}")
+        self.clear_stop_request()
         
         # Create filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -230,69 +255,8 @@ Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             "session_name": session_name
         }
     
-    async def summarize_transcript(self, transcript_text: str, session_name: str = "Recording") -> dict:
-        """Summarize transcript text."""
-        print("🧠 Generating summary...")
-        
-        # Initialize summarizer only when needed
-        if self.summarizer is None:
-            self.summarizer = OllamaSummarizer()
-        
-        # Create summary prompt
-        prompt = f"""
-Please analyze and summarize this audio transcript from a recording session.
-
-Session: {session_name}
-
-Please provide:
-1. Brief overview of the content
-2. Key points discussed
-3. Important decisions or conclusions
-4. Action items (if any)
-5. Notable quotes or insights
-
-Transcript:
-{transcript_text}
-"""
-        
-        # Generate summary (using correct method name and parameters)
-        summary_result = self.summarizer.summarize_transcript(transcript_text, 10)  # 10 minutes duration estimate
-        
-        if summary_result is None:
-            return {
-                "summary": "Failed to generate summary",
-                "participants": [],
-                "discussion_areas": [],
-                "key_points": [],
-                "action_items": []
-            }
-        
-        # Defensive extraction from summary_result
-        try:
-            return {
-                "summary": getattr(summary_result, 'overview', '') or '',
-                "participants": getattr(summary_result, 'participants', []) or [],
-                "discussion_areas": [
-                    {
-                        "title": getattr(area, 'title', ''),
-                        "analysis": getattr(area, 'analysis', '')
-                    } for area in getattr(summary_result, 'discussion_areas', [])
-                ],
-                "key_points": [getattr(decision, 'decision', '') for decision in getattr(summary_result, 'key_points', [])],
-                "action_items": [getattr(action, 'description', '') for action in getattr(summary_result, 'next_steps', [])]
-            }
-        except Exception as e:
-            print(f"⚠️ Error extracting summary data: {e}")
-            return {
-                "summary": "Summary extraction failed",
-                "participants": [],
-                "discussion_areas": [],
-                "key_points": [],
-                "action_items": []
-            }
-    
     async def process_recording(self, audio_file: str, session_name: str = "Recording") -> dict:
-        """Complete processing: transcribe + summarize."""
+        """Complete processing: transcribe and save transcript data."""
         print(f"🔄 Processing recording: {audio_file}")
         
         # If no audio file provided, use the last recording
@@ -341,37 +305,30 @@ Transcript:
         # Step 1: Transcribe
         transcript_data = await self.transcribe_audio(audio_file, session_name)
         
-        # Step 2: Summarize with actual duration
-        summary_data = await self.summarize_transcript(
-            transcript_data["transcript_text"], 
-            session_name
-        )
-        
-        # Step 3: Save complete summary
-        summary_path = self.output_dir / f"{audio_path.stem}_summary.json"
+        # Step 2: Save transcript record
+        meeting_path = self.output_dir / f"{audio_path.stem}_meeting.json"
+        transcript_text = transcript_data["transcript_text"]
         
         complete_data = {
             "session_info": {
                 "name": session_name,
                 "audio_file": str(audio_path),
                 "transcript_file": transcript_data["transcript_file"],
-                "summary_file": str(summary_path),
+                "meeting_file": str(meeting_path),
+                "summary_file": str(meeting_path),
                 "processed_at": datetime.now().isoformat(),
                 "duration_seconds": int(duration_seconds) if 'duration_seconds' in locals() else None,
-                "duration_minutes": duration_minutes
+                "duration_minutes": duration_minutes,
+                "mode": "transcription"
             },
-            "summary": summary_data.get("summary", "") or "",
-            "participants": summary_data.get("participants", []) or [],
-            "discussion_areas": summary_data.get("discussion_areas", []) or [],
-            "key_points": summary_data.get("key_points", []) or [],
-            "action_items": summary_data.get("action_items", []) or [],
-            "transcript": transcript_data["transcript_text"]
+            "transcript_preview": " ".join(transcript_text.split())[:240],
+            "transcript": transcript_text
         }
         
-        with open(summary_path, 'w') as f:
+        with open(meeting_path, 'w') as f:
             json.dump(complete_data, f, indent=2)
         
-        print(f"✅ Complete processing saved: {summary_path}")
+        print(f"✅ Transcript record saved: {meeting_path}")
         
         # Clean up WAV file after successful processing
         try:
@@ -389,7 +346,7 @@ Transcript:
             except Exception as e:
                 print(f"⚠️ Could not clear state: {e}")
         
-        print(f"📋 Processing complete - meeting available in list")
+        print("📋 Processing complete - transcript available in list")
         
         return complete_data
 
@@ -425,7 +382,7 @@ def start(session_name):
         if processing_started:
             print("⚠️ Processing already started - please wait for completion...")
             if signum == 15:  # SIGTERM - ignore it during processing
-                print("🔄 Ignoring SIGTERM during transcription/summarization")
+                print("🔄 Ignoring SIGTERM during transcription")
                 return
             exit(0)
             
@@ -442,7 +399,7 @@ def start(session_name):
                     print(f"📏 File size: {file_size / 1024:.1f} KB")
                     
                     if file_size >= 1000:  # At least 1KB of audio data
-                        print("🔄 Starting transcription and summarization pipeline...")
+                        print("🔄 Starting transcription pipeline...")
                         
                         # Process recording with proper async handling
                         try:
@@ -454,8 +411,8 @@ def start(session_name):
                             result = loop.run_until_complete(recorder.process_recording(final_path, session_name))
                             
                             print("✅ Complete processing finished!")
-                            print(f"📄 Transcript: {result['session_info']['transcript_file']}")  
-                            print(f"📋 Summary: {result['session_info']['summary_file']}")
+                            print(f"📄 Transcript: {result['session_info']['transcript_file']}")
+                            print(f"📋 Record: {result['session_info']['meeting_file']}")
                             print(f"📊 Meeting: {result['session_info']['name']}")
                             
                         except Exception as e:
@@ -479,6 +436,7 @@ def start(session_name):
     signal.signal(signal.SIGINT, signal_handler)
     
     try:
+        recorder.clear_stop_request()
         recording_path = recorder.start_recording(session_name)
         recording_started = True
         print(f"🎤 Recording '{session_name}' - Press Ctrl+C to stop and process")
@@ -487,6 +445,8 @@ def start(session_name):
         
         # Wait indefinitely until interrupted
         while True:
+            if recorder.should_stop():
+                signal_handler(signal.SIGTERM, None)
             time.sleep(1)
             
     except Exception as e:
@@ -501,9 +461,17 @@ def stop():
     import signal
     import os
     import time
+
+    recorder = SimpleRecorder()
+    recorder.request_stop()
     
     # First check if there's a recording process running
     try:
+        if sys.platform.startswith("win"):
+            print("🛑 Stop requested - waiting for background recorder to finish processing")
+            print("✅ Stop request recorded for any active background recorder")
+            return
+
         # Find running start processes
         result = subprocess.run(
             ['pgrep', '-f', 'simple_recorder.py start'],
@@ -523,18 +491,17 @@ def stop():
                         os.kill(pid_int, signal.SIGINT)
                         
                         print(f"✅ Stop signal sent to process {pid_int}")
-                        print(f"🔄 Recording will stop and processing will begin automatically")
+                        print("🔄 Recording will stop and transcription will begin automatically")
                         print(f"💡 Processing may take a few minutes - check output files when complete")
                             
                     except (ValueError, ProcessLookupError) as e:
                         print(f"⚠️ Could not signal process {pid}: {e}")
             
-            print("✅ Stop signal sent - recording will be processed automatically")
+            print("✅ Stop signal sent - recording will be transcribed automatically")
             
         else:
-            # Fallback to old method if no start process found
+            # Cross-platform fallback for background `record` mode uses the stop request file.
             print("🔍 No start process found, checking recording state...")
-            recorder = SimpleRecorder()
             state = recorder.get_state()
             
             if state.get("recording"):
@@ -548,6 +515,7 @@ def stop():
                 print("✅ State cleared")
             else:
                 print("ℹ️ No active recording found")
+                print("✅ Stop request recorded for any active background recorder")
                 
     except Exception as e:
         print(f"ERROR: {e}")
@@ -558,7 +526,7 @@ def stop():
 @click.argument('audio_file', default='')
 @click.option('--name', '-n', default='Recording', help='Session name for the recording')
 def process(audio_file, name):
-    """Process audio file: transcribe + summarize"""
+    """Process audio file: transcribe and save transcript data"""
     
     async def run_process():
         recorder = SimpleRecorder()
@@ -568,7 +536,7 @@ def process(audio_file, name):
             
             print("SUCCESS: Processing complete!")
             print(f"Transcript: {result['session_info']['transcript_file']}")
-            print(f"Summary: {result['session_info']['summary_file']}")
+            print(f"Record: {result['session_info']['meeting_file']}")
             
         except Exception as e:
             print(f"ERROR: {e}")
@@ -626,11 +594,12 @@ def record(duration, session_name):
     live_logger = None
     recording_started = False
     start_time = None
+    capture_mode = None
 
     # Generate file paths
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     transcript_path = recorder.transcripts_dir / f"{timestamp}_{session_name}_transcript.txt"
-    summary_path = recorder.output_dir / f"{timestamp}_{session_name}_summary.json"
+    meeting_path = recorder.output_dir / f"{timestamp}_{session_name}_meeting.json"
 
     def on_transcript_segment(segment):
         """Callback for real-time transcript updates"""
@@ -653,7 +622,7 @@ def record(duration, session_name):
 
         print(f"📄 Transcript saved: {transcript_path}")
 
-        # Get plain text for summarization
+        # Get plain text transcript for storage
         plain_transcript = "\n".join([
             f"[{seg.speaker or 'Unknown'}]: {seg.text}"
             for seg in sorted(segments, key=lambda s: s.start_time)
@@ -662,67 +631,34 @@ def record(duration, session_name):
         if not plain_transcript.strip():
             plain_transcript = "No speech detected in audio"
 
-        # Summarize with Ollama
-        print("🧠 Generating summary...")
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        result = {
+            "session_info": {
+                "name": session_name,
+                "audio_file": None,  # No audio file saved in real-time mode
+                "transcript_file": str(transcript_path),
+                "meeting_file": str(meeting_path),
+                "summary_file": str(meeting_path),
+                "processed_at": datetime.now().isoformat(),
+                "duration_seconds": int(duration_seconds),
+                "duration_minutes": max(1, int(duration_seconds / 60)),
+                "mode": "transcription"
+            },
+            "transcript_preview": " ".join(plain_transcript.split())[:240],
+            "transcript": plain_transcript
+        }
 
-            async def do_summarize():
-                return await recorder.summarize_transcript(plain_transcript, session_name)
+        with open(meeting_path, 'w') as f:
+            json.dump(result, f, indent=2)
 
-            summary_data = loop.run_until_complete(do_summarize())
+        print(f"✅ Transcript record saved: {meeting_path}")
 
-            # Build final result
-            result = {
-                "session_info": {
-                    "name": session_name,
-                    "audio_file": None,  # No audio file saved in real-time mode
-                    "transcript_file": str(transcript_path),
-                    "summary_file": str(summary_path),
-                    "processed_at": datetime.now().isoformat(),
-                    "duration_seconds": int(duration_seconds),
-                    "duration_minutes": max(1, int(duration_seconds / 60))
-                },
-                **summary_data,
-                "transcript": plain_transcript
-            }
+        # Clean up state
+        if recorder.state_file.exists():
+            recorder.state_file.unlink()
+            print("🧹 Cleared recording state")
 
-            # Save summary
-            with open(summary_path, 'w') as f:
-                json.dump(result, f, indent=2)
-
-            print(f"✅ Complete processing saved: {summary_path}")
-
-            # Clean up state
-            if recorder.state_file.exists():
-                recorder.state_file.unlink()
-                print("🧹 Cleared recording state")
-
-            print("📋 Processing complete - meeting available in list")
-            return result
-
-        except Exception as e:
-            print(f"❌ Summarization failed: {e}")
-            import traceback
-            traceback.print_exc()
-
-            # Save basic result without summary
-            result = {
-                "session_info": {
-                    "name": session_name,
-                    "transcript_file": str(transcript_path),
-                    "summary_file": str(summary_path),
-                    "processed_at": datetime.now().isoformat(),
-                    "duration_seconds": int(duration_seconds),
-                },
-                "summary": "Summarization failed - transcript available",
-                "transcript": plain_transcript
-            }
-            with open(summary_path, 'w') as f:
-                json.dump(result, f, indent=2)
-            return result
+        print("📋 Processing complete - transcript available in list")
+        return result
 
     def signal_handler(signum, frame):
         """Handle SIGTERM gracefully by stopping and processing"""
@@ -745,12 +681,12 @@ def record(duration, session_name):
                 transcript_text = transcriber.get_full_transcript()
 
                 if segments:
-                    print("🔄 Starting summarization pipeline...")
+                    print("🔄 Starting transcription pipeline...")
                     result = process_and_save(transcript_text, segments, duration_seconds)
 
                     print("✅ Complete processing finished!")
                     print(f"📄 Transcript: {result['session_info']['transcript_file']}")
-                    print(f"📋 Summary: {result['session_info']['summary_file']}")
+                    print(f"📋 Record: {result['session_info']['meeting_file']}")
                     print(f"📊 Meeting: {result['session_info']['name']}")
                 else:
                     print("⚠️ No speech detected - saving empty transcript")
@@ -771,6 +707,7 @@ def record(duration, session_name):
 
     try:
         print("🎤 Starting recording: " + session_name)
+        recorder.clear_stop_request()
 
         # Save state for status command
         state = {
@@ -796,7 +733,7 @@ def record(duration, session_name):
         # Start real-time transcription
         if not transcriber.start():
             print("❌ Failed to start real-time transcription")
-            print("   Make sure SystemAudioDump is available for system audio capture")
+            print("   System audio capture may require platform-specific audio routing")
             # Try microphone-only fallback
             print("🎤 Trying microphone-only mode...")
             transcriber, live_logger = create_realtime_transcriber(
@@ -811,13 +748,20 @@ def record(duration, session_name):
             if not transcriber.start():
                 print("❌ Failed to start transcription - check audio devices")
                 exit(1)
+            capture_mode = "microphone-only"
+        else:
+            capture_mode = "system+microphone"
 
         recording_started = True
         start_time = time.time()
 
+        print(f"CAPTURE_MODE: {capture_mode}")
         print(f"📁 Recording to: {transcript_path}")
         print("📢 Speak into your microphone now!")
-        print("🔊 System audio will also be captured (meetings, videos, etc.)")
+        if capture_mode == "system+microphone":
+            print("🔊 System audio will also be captured (meetings, videos, etc.)")
+        else:
+            print("🎤 Running in microphone-only mode")
         print("=" * 50)
 
         # For very long durations, wait indefinitely
@@ -825,12 +769,16 @@ def record(duration, session_name):
             print("🔄 Recording indefinitely (until stopped)...")
             try:
                 while True:
+                    if recorder.should_stop():
+                        signal_handler(signal.SIGTERM, None)
                     time.sleep(5)
             except KeyboardInterrupt:
                 signal_handler(signal.SIGINT, None)
         else:
             # Count down for normal durations
             for i in range(duration, 0, -1):
+                if recorder.should_stop():
+                    signal_handler(signal.SIGTERM, None)
                 print(f"   {i}...")
                 time.sleep(1)
 
@@ -869,7 +817,7 @@ def _record_basic(duration, session_name):
                         result = loop.run_until_complete(recorder.process_recording(final_path, session_name))
                         print("✅ Complete processing finished!")
                         print(f"📄 Transcript: {result['session_info']['transcript_file']}")
-                        print(f"📋 Summary: {result['session_info']['summary_file']}")
+                        print(f"📋 Record: {result['session_info']['meeting_file']}")
             except Exception as e:
                 print(f"❌ Error: {e}")
         print("🏁 Recording session ended")
@@ -879,16 +827,22 @@ def _record_basic(duration, session_name):
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
+        recorder.clear_stop_request()
         recording_path = recorder.start_recording(session_name)
         recording_started = True
+        print("CAPTURE_MODE: microphone-only")
         print(f"📁 Recording to: {recording_path}")
         print("📢 Speak into your microphone now!")
 
         if duration > 86400:
             while True:
+                if recorder.should_stop():
+                    signal_handler(signal.SIGTERM, None)
                 time.sleep(5)
         else:
             for i in range(duration, 0, -1):
+                if recorder.should_stop():
+                    signal_handler(signal.SIGTERM, None)
                 print(f"   {i}...")
                 time.sleep(1)
 
@@ -929,24 +883,8 @@ def test():
             print(f"ERROR: {e}")
             return
         
-        # Test Ollama availability (lightweight check)
-        print("🧠 Testing Ollama availability...")
-        if not OllamaSummarizer:
-            print("❌ Ollama summarizer not available")
-            print("ERROR: Ollama dependencies missing")
-            return
-            
-        try:
-            # Just check if we can initialize without making API calls
-            summarizer = OllamaSummarizer()
-            print("✅ Ollama summarizer ready")
-        except Exception as e:
-            print(f"❌ Ollama initialization failed: {e}")
-            print(f"ERROR: {e}")
-            return
-        
         print("🎉 System check passed!")
-        print("SUCCESS: All components are working correctly")
+        print("SUCCESS: Recording and transcription components are working correctly")
         
     except Exception as e:
         print(f"❌ System test failed: {e}")
@@ -957,11 +895,10 @@ def test():
 @cli.command()
 def list_meetings():
     """List all processed meetings - optimized for fast loading"""
-    # Don't initialize SimpleRecorder to avoid Ollama checks - just get the output directory
+    # Don't initialize SimpleRecorder - just get the output directory
     current_path = Path(__file__).parent
-    if "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
-        # DMG/Production: Use Application Support folder
-        app_support = Path.home() / "Library" / "Application Support" / "stenoai"
+    if os.environ.get("STENOAI_APP_DATA_DIR") or "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
+        app_support = get_app_data_dir()
         output_dir = app_support / "output"
     else:
         # Development: Use project relative paths
@@ -970,157 +907,40 @@ def list_meetings():
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Get all summary files - use glob pattern for speed
-    summaries = list(output_dir.glob("*_summary.json"))
+    # Load new transcript records and legacy summary records for compatibility.
+    meeting_files = list(output_dir.glob("*_meeting.json")) + list(output_dir.glob("*_summary.json"))
     meetings = []
     
     # Sort by actual meeting date, with fallback to modification time
-    def get_meeting_date(summary_file):
+    def get_meeting_date(meeting_file):
         try:
-            with open(summary_file, 'r', encoding='utf-8') as f:
+            with open(meeting_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data.get('session_info', {}).get('processed_at', '')
         except:
             # Fallback to file modification time if JSON read fails
-            return summary_file.stat().st_mtime
+            return meeting_file.stat().st_mtime
     
-    summaries.sort(key=get_meeting_date, reverse=True)
+    meeting_files.sort(key=get_meeting_date, reverse=True)
     
-    for summary_file in summaries:
+    for meeting_file in meeting_files:
         try:
-            with open(summary_file, 'r', encoding='utf-8') as f:
+            with open(meeting_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 # Only include essential fields for faster loading
                 essential_meeting = {
                     "session_info": data.get("session_info", {}),
-                    "summary": data.get("summary", ""),
-                    "participants": data.get("participants", []),
-                    "discussion_areas": data.get("discussion_areas", []),
-                    "key_points": data.get("key_points", []),
-                    "action_items": data.get("action_items", []),
+                    "transcript_preview": data.get("transcript_preview", ""),
                     "transcript": data.get("transcript", "")
                 }
                 meetings.append(essential_meeting)
         except Exception as e:
             # Log warning but continue processing other files
-            logger.warning(f"Failed to load {summary_file}: {e}")
+            logger.warning(f"Failed to load {meeting_file}: {e}")
             continue
     
     # Output as compact JSON for Electron (no indentation for speed)
     print(json.dumps(meetings, separators=(',', ':')))
-
-
-@cli.command()
-@click.argument('summary_file', required=True)
-def reprocess(summary_file):
-    """Reprocess a failed summary by re-running Ollama analysis on existing transcript"""
-    import json
-    from pathlib import Path
-    
-    async def run_reprocess():
-        recorder = SimpleRecorder()
-        summary_path = Path(summary_file)
-        
-        if not summary_path.exists():
-            print(f"ERROR: Summary file not found: {summary_file}")
-            return
-        
-        try:
-            # Load existing summary file
-            with open(summary_path, 'r') as f:
-                existing_data = json.load(f)
-            
-            # Get transcript from the data
-            transcript = existing_data.get('transcript', '')
-            if not transcript:
-                print("ERROR: No transcript found in summary file")
-                return
-            
-            session_name = existing_data.get('session_info', {}).get('name', 'Reprocessed')
-            duration_minutes = existing_data.get('session_info', {}).get('duration_minutes', 10)
-            
-            print(f"🔄 Reprocessing summary for: {session_name}")
-            print(f"📝 Transcript length: {len(transcript)} characters")
-            
-            # Re-run summarization
-            summary_data = await recorder.summarize_transcript(transcript, session_name)
-            
-            # Update the existing data with new summary
-            existing_data.update({
-                "summary": summary_data.get("summary", "") or "",
-                "participants": summary_data.get("participants", []) or [],
-                "discussion_areas": summary_data.get("discussion_areas", []) or [],
-                "key_points": summary_data.get("key_points", []) or [],
-                "action_items": summary_data.get("action_items", []) or [],
-            })
-            
-            # Add reprocess timestamp
-            existing_data["session_info"]["reprocessed_at"] = datetime.now().isoformat()
-            
-            # Save updated summary
-            with open(summary_path, 'w') as f:
-                json.dump(existing_data, f, indent=2)
-            
-            print(f"✅ Summary reprocessed successfully: {summary_path}")
-            print(f"📋 New summary: {existing_data['summary'][:100]}...")
-            
-        except Exception as e:
-            print(f"ERROR: Failed to reprocess summary: {e}")
-    
-    asyncio.run(run_reprocess())
-
-
-@cli.command()
-def list_failed():
-    """List summary files that failed processing (have fallback summaries)"""
-    import json
-    # Don't initialize SimpleRecorder to avoid Ollama checks - just get the output directory
-    current_path = Path(__file__).parent
-    if "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
-        # DMG/Production: Use Application Support folder
-        app_support = Path.home() / "Library" / "Application Support" / "stenoai"
-        output_dir = app_support / "output"
-    else:
-        # Development: Use project relative paths
-        output_dir = Path("output")
-    
-    # Get all summary files
-    summaries = list(output_dir.glob("*_summary.json"))
-    failed_summaries = []
-    
-    for summary_file in summaries:
-        try:
-            with open(summary_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-                # Check for signs of failed processing
-                summary_text = data.get("summary", "")
-                if (summary_text.startswith("Meeting transcript recorded but detailed analysis failed") or 
-                    summary_text.startswith("No transcript was generated") or
-                    len(data.get("participants", [])) == 0 and len(data.get("key_points", [])) == 0):
-                    failed_summaries.append({
-                        "file": str(summary_file),
-                        "name": data.get("session_info", {}).get("name", "Unknown"),
-                        "processed_at": data.get("session_info", {}).get("processed_at", "Unknown"),
-                        "summary": summary_text[:100] + "..." if len(summary_text) > 100 else summary_text
-                    })
-        except Exception as e:
-            continue
-    
-    if failed_summaries:
-        print("🔍 Failed Summaries Found:")
-        print("=" * 50)
-        for failed in failed_summaries:
-            print(f"📁 File: {failed['file']}")
-            print(f"📊 Name: {failed['name']}")
-            print(f"🕐 Processed: {failed['processed_at']}")
-            print(f"📝 Summary: {failed['summary']}")
-            print(f"🔄 Reprocess: python simple_recorder.py reprocess \"{failed['file']}\"")
-            print("-" * 50)
-        print(f"Total failed summaries: {len(failed_summaries)}")
-    else:
-        print("✅ No failed summaries found - all processing completed successfully!")
-
 
 @cli.command()
 def clear_state():
@@ -1158,9 +978,8 @@ def setup_check():
     
     # Check required directories - use same logic as SimpleRecorder.__init__
     current_path = Path(__file__).parent
-    if "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
-        # DMG/Production: Use Application Support folder
-        app_support = Path.home() / "Library" / "Application Support" / "stenoai"
+    if os.environ.get("STENOAI_APP_DATA_DIR") or "StenoAI.app" in str(current_path) or "Applications" in str(current_path):
+        app_support = get_app_data_dir()
         base_dirs = {
             "recordings": app_support / "recordings",
             "transcripts": app_support / "transcripts", 
@@ -1181,43 +1000,27 @@ def setup_check():
             dir_path.mkdir(parents=True, exist_ok=True)
             checks.append((f"✅ {dir_name}/", f"created at {dir_path}"))
     
-    # Check Ollama - use same path resolution as summarizer
-    try:
-        ollama_found = False
-        ollama_path = None
-        possible_paths = [
-            'ollama',  # Try PATH first
-            '/opt/homebrew/bin/ollama',  # Homebrew on Apple Silicon
-            '/usr/local/bin/ollama',     # Homebrew on Intel
-            '/usr/bin/ollama',           # System installation
-        ]
-        
-        for path in possible_paths:
-            try:
-                result = subprocess.run([path, '--version'], 
-                                      capture_output=True, timeout=5)
-                if result.returncode == 0:
-                    checks.append(("✅ Ollama", f"found at {path}"))
-                    ollama_found = True
-                    ollama_path = path
-                    break
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
-        if not ollama_found:
-            checks.append(("❌ Ollama", "not found - run: brew install ollama"))
-    except Exception as e:
-        checks.append(("❌ Ollama", f"Error: {e}"))
-    
     # Check ffmpeg
     try:
         ffmpeg_found = False
-        possible_ffmpeg_paths = [
-            'ffmpeg',  # Try PATH first
-            '/opt/homebrew/bin/ffmpeg',  # Homebrew on Apple Silicon
-            '/usr/local/bin/ffmpeg',     # Homebrew on Intel
-            '/usr/bin/ffmpeg',           # System installation
-        ]
+        possible_ffmpeg_paths = ['ffmpeg']
+        if sys.platform == "darwin":
+            possible_ffmpeg_paths.extend([
+                '/opt/homebrew/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg',
+                '/usr/bin/ffmpeg',
+            ])
+        elif sys.platform.startswith("win"):
+            possible_ffmpeg_paths.extend([
+                r'C:\ffmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+            ])
+        else:
+            possible_ffmpeg_paths.extend([
+                '/usr/local/bin/ffmpeg',
+                '/usr/bin/ffmpeg',
+            ])
         
         for path in possible_ffmpeg_paths:
             try:
@@ -1231,13 +1034,12 @@ def setup_check():
                 continue
         
         if not ffmpeg_found:
-            checks.append(("❌ ffmpeg", "not found - run: brew install ffmpeg"))
+            if sys.platform.startswith("win"):
+                checks.append(("❌ ffmpeg", "not found - install via winget/choco/scoop or add to PATH"))
+            else:
+                checks.append(("❌ ffmpeg", "not found - install ffmpeg and add it to PATH"))
     except Exception as e:
         checks.append(("❌ ffmpeg", f"Error: {e}"))
-    
-    # Skip Ollama model check during setup - service starts automatically when needed
-    # Just verify Ollama binary is installed
-    # The model will be downloaded during setup if needed
     
     # Check Python dependencies
     try:
@@ -1252,12 +1054,6 @@ def setup_check():
     except ImportError:
         checks.append(("❌ whisper", "pip install openai-whisper"))
     
-    try:
-        import ollama
-        checks.append(("✅ ollama-python", "LLM client"))
-    except ImportError:
-        checks.append(("❌ ollama-python", "pip install ollama"))
-    
     # Print results
     all_good = True
     for status, detail in checks:
@@ -1267,69 +1063,11 @@ def setup_check():
     
     print("\n" + "=" * 25)
     if all_good:
-        print("🎉 System check passed! Ready to record meetings.")
+        print("🎉 System check passed! Ready to record and transcribe.")
     else:
         print("⚠️ Setup incomplete. Please install missing dependencies.")
     
     return {"success": all_good, "checks": checks}
-
-
-@cli.command()
-def list_models():
-    """List all supported models with metadata"""
-    from src.config import get_config
-
-    config = get_config()
-    models = config.list_supported_models()
-    current_model = config.get_model()
-
-    result = {
-        "current_model": current_model,
-        "supported_models": models
-    }
-
-    print(json.dumps(result, indent=2))
-
-
-@cli.command()
-def get_model():
-    """Get the currently configured model"""
-    from src.config import get_config
-
-    config = get_config()
-    current_model = config.get_model()
-    model_info = config.get_model_info(current_model)
-
-    result = {
-        "model": current_model,
-        "info": model_info
-    }
-
-    print(json.dumps(result, indent=2))
-
-
-@cli.command()
-@click.argument('model_name')
-def set_model(model_name):
-    """Set the preferred model for summarization"""
-    from src.config import get_config
-
-    config = get_config()
-
-    # Validate model
-    if model_name not in config.SUPPORTED_MODELS:
-        print(f"WARNING: Model '{model_name}' is not in the recommended list.")
-        print(f"Supported models: {', '.join(config.SUPPORTED_MODELS.keys())}")
-        print(f"Setting anyway (make sure it's installed with 'ollama pull {model_name}')")
-
-    success = config.set_model(model_name)
-
-    if success:
-        print(f"SUCCESS: Model set to {model_name}")
-        print(json.dumps({"success": True, "model": model_name}))
-    else:
-        print(f"ERROR: Failed to save model configuration")
-        print(json.dumps({"success": False, "error": "Failed to save config"}))
 
 
 @cli.command()

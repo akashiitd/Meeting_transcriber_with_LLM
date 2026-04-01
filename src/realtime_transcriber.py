@@ -11,6 +11,7 @@ import queue
 import time
 import subprocess
 import os
+import sys
 import wave
 import io
 from pathlib import Path
@@ -197,17 +198,29 @@ class AudioBuffer:
 
 
 class SystemAudioCapture:
-    """Captures system audio using BlackHole virtual audio device on macOS."""
+    """Captures system audio using platform-specific loopback devices."""
 
-    def __init__(self, sample_rate: int = 16000):
-        self.sample_rate = sample_rate
+    def __init__(self, sample_rate: Optional[int] = None):
+        self.sample_rate = sample_rate or 16000
         self.running = False
         self.audio_queue: queue.Queue = queue.Queue()
         self.stream: Optional[Any] = None
         self.device_id: Optional[int] = None
+        self.channel_count = 1
+        self.extra_settings: Optional[Any] = None
+        self.capture_mode = "unsupported"
 
-        # Find BlackHole device
-        self.device_id = self._find_blackhole_device()
+        self.device_id = self._find_system_audio_device()
+
+    def _find_system_audio_device(self) -> Optional[int]:
+        """Find a platform-appropriate system audio capture device."""
+        if sys.platform == "darwin":
+            return self._find_blackhole_device()
+        if sys.platform.startswith("win"):
+            return self._find_windows_loopback_device()
+
+        logger.info("System audio capture is only configured for macOS and Windows")
+        return None
 
     def _find_blackhole_device(self) -> Optional[int]:
         """Find BlackHole virtual audio device."""
@@ -222,6 +235,9 @@ class SystemAudioCapture:
                 # Look for BlackHole or other virtual audio devices
                 if 'blackhole' in device_name:
                     if device.get('max_input_channels', 0) > 0:
+                        self.channel_count = max(1, min(2, int(device.get('max_input_channels', 1))))
+                        self.sample_rate = int(device.get('default_samplerate') or self.sample_rate)
+                        self.capture_mode = "blackhole"
                         logger.info(f"Found BlackHole device: {device['name']} (ID: {i})")
                         return i
 
@@ -233,22 +249,90 @@ class SystemAudioCapture:
             logger.error(f"Error finding BlackHole device: {e}")
             return None
 
+    def _find_windows_loopback_device(self) -> Optional[int]:
+        """Find the default output device and capture it through WASAPI loopback."""
+        if not SOUNDDEVICE_AVAILABLE:
+            logger.warning("sounddevice not available for system audio capture")
+            return None
+
+        if not hasattr(sd, "WasapiSettings"):
+            logger.warning("WASAPI loopback is not available in this sounddevice build")
+            return None
+
+        try:
+            devices = sd.query_devices()
+            hostapis = sd.query_hostapis()
+            wasapi_hostapis = {
+                index for index, api in enumerate(hostapis)
+                if "wasapi" in api.get("name", "").lower()
+            }
+
+            if not wasapi_hostapis:
+                logger.warning("No WASAPI host API found for system audio capture")
+                return None
+
+            default_output = None
+            try:
+                default_devices = sd.default.device
+                if isinstance(default_devices, (list, tuple)) and len(default_devices) > 1:
+                    default_output = default_devices[1]
+            except Exception:
+                default_output = None
+
+            candidate_ids = []
+            if isinstance(default_output, int) and default_output >= 0:
+                candidate_ids.append(default_output)
+
+            for i, device in enumerate(devices):
+                if i in candidate_ids:
+                    continue
+                if device.get("hostapi") in wasapi_hostapis and device.get("max_output_channels", 0) > 0:
+                    candidate_ids.append(i)
+
+            for device_id in candidate_ids:
+                device = devices[device_id]
+                if device.get("hostapi") not in wasapi_hostapis:
+                    continue
+                output_channels = int(device.get("max_output_channels", 0))
+                if output_channels <= 0:
+                    continue
+
+                self.channel_count = max(1, min(2, output_channels))
+                self.sample_rate = int(device.get("default_samplerate") or self.sample_rate or 48000)
+                self.extra_settings = sd.WasapiSettings(loopback=True)
+                self.capture_mode = "wasapi-loopback"
+                logger.info(f"Found WASAPI loopback device: {device['name']} (ID: {device_id})")
+                return device_id
+
+            logger.warning("No WASAPI output device available for system audio capture")
+            return None
+        except Exception as e:
+            logger.error(f"Error finding Windows loopback device: {e}")
+            return None
+
     def _audio_callback(self, indata, frames, time_info, status):
         """Callback for audio stream."""
         if status:
             logger.warning(f"System audio callback status: {status}")
         if NUMPY_AVAILABLE and self.running:
-            self.audio_queue.put(indata.copy())
+            chunk = indata.copy()
+            if chunk.ndim > 1 and chunk.shape[1] > 1:
+                chunk = np.mean(chunk, axis=1, keepdims=True)
+            self.audio_queue.put(chunk.astype(np.float32, copy=False))
 
     def start(self) -> bool:
-        """Start capturing system audio via BlackHole."""
+        """Start capturing system audio using the configured capture mode."""
         if self.device_id is None:
-            logger.error("BlackHole device not available")
-            logger.error("To capture system audio:")
-            logger.error("  1. Install BlackHole: brew install blackhole-2ch")
-            logger.error("  2. Open Audio MIDI Setup")
-            logger.error("  3. Create Multi-Output Device with your speakers + BlackHole")
-            logger.error("  4. Set Multi-Output as your system output")
+            if sys.platform == "darwin":
+                logger.error("BlackHole device not available")
+                logger.error("To capture system audio:")
+                logger.error("  1. Install BlackHole")
+                logger.error("  2. Open Audio MIDI Setup")
+                logger.error("  3. Create Multi-Output Device with your speakers + BlackHole")
+                logger.error("  4. Set Multi-Output as your system output")
+            elif sys.platform.startswith("win"):
+                logger.error("Windows loopback device not available")
+                logger.error("Make sure your default playback device is active and WASAPI is enabled")
             return False
 
         if not SOUNDDEVICE_AVAILABLE:
@@ -260,17 +344,24 @@ class SystemAudioCapture:
             return True
 
         try:
-            self.stream = sd.InputStream(
+            stream_kwargs = dict(
                 samplerate=self.sample_rate,
-                channels=1,
+                channels=self.channel_count,
                 dtype='float32',
                 device=self.device_id,
                 callback=self._audio_callback,
                 blocksize=int(self.sample_rate * 0.2)  # 200ms blocks
             )
+            if self.extra_settings is not None:
+                stream_kwargs["extra_settings"] = self.extra_settings
+
+            self.stream = sd.InputStream(**stream_kwargs)
             self.stream.start()
             self.running = True
-            logger.info(f"System audio capture started via BlackHole (device {self.device_id})")
+            logger.info(
+                f"System audio capture started via {self.capture_mode} "
+                f"(device {self.device_id}, sample_rate={self.sample_rate}, channels={self.channel_count})"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to start system audio capture: {e}")
@@ -389,7 +480,7 @@ class RealtimeTranscriber:
         self.mic_capture: Optional[MicrophoneCapture] = None
 
         # Audio buffers
-        self.system_buffer = AudioBuffer(sample_rate=24000)
+        self.system_buffer = AudioBuffer(sample_rate=16000)
         self.mic_buffer = AudioBuffer(sample_rate=16000)
 
         # Transcription model
@@ -482,6 +573,8 @@ class RealtimeTranscriber:
             if not self.system_capture.start():
                 logger.warning("System audio capture not available")
                 self.system_capture = None
+            else:
+                self.system_buffer = AudioBuffer(sample_rate=self.system_capture.sample_rate)
 
         if self.enable_microphone:
             self.mic_capture = MicrophoneCapture()
@@ -588,10 +681,9 @@ class RealtimeTranscriber:
         if len(audio) < 1600:  # Less than 0.1s of audio
             return
 
-        # Resample if needed (system audio is 24kHz)
-        if source == "system" and NUMPY_AVAILABLE:
-            # Simple resampling from 24kHz to 16kHz
-            audio = self._resample(audio, 24000, 16000)
+        # Resample if needed
+        if NUMPY_AVAILABLE and buffer.sample_rate != 16000:
+            audio = self._resample(audio, buffer.sample_rate, 16000)
 
         try:
             current_time = time.time() - self.start_time
@@ -907,4 +999,3 @@ if __name__ == "__main__":
         os.makedirs("transcripts", exist_ok=True)
         transcriber.save_transcript(output_path)
         print(f"Final transcript saved to: {output_path}")
-

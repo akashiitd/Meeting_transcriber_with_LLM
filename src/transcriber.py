@@ -8,6 +8,7 @@ except ImportError:
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -42,12 +43,24 @@ class WhisperTranscriber:
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
             pass
         
-        # ffmpeg not in PATH, try common Homebrew locations
-        possible_ffmpeg_paths = [
-            '/opt/homebrew/bin/ffmpeg',  # Homebrew on Apple Silicon
-            '/usr/local/bin/ffmpeg',     # Homebrew on Intel
-            '/usr/bin/ffmpeg',           # System installation
-        ]
+        possible_ffmpeg_paths = []
+        if sys.platform == "darwin":
+            possible_ffmpeg_paths = [
+                '/opt/homebrew/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg',
+                '/usr/bin/ffmpeg',
+            ]
+        elif sys.platform.startswith("win"):
+            possible_ffmpeg_paths = [
+                r'C:\ffmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+                r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+            ]
+        else:
+            possible_ffmpeg_paths = [
+                '/usr/local/bin/ffmpeg',
+                '/usr/bin/ffmpeg',
+            ]
         
         ffmpeg_found_path = None
         for path in possible_ffmpeg_paths:
@@ -65,7 +78,8 @@ class WhisperTranscriber:
             ffmpeg_dir = os.path.dirname(ffmpeg_found_path)
             current_path = os.environ.get('PATH', '')
             if ffmpeg_dir not in current_path:
-                os.environ['PATH'] = f"{ffmpeg_dir}:{current_path}"
+                path_separator = ';' if sys.platform.startswith("win") else ':'
+                os.environ['PATH'] = f"{ffmpeg_dir}{path_separator}{current_path}"
                 logger.info(f"Added {ffmpeg_dir} to PATH for Whisper ffmpeg access")
         else:
             logger.warning("ffmpeg not found in any common location - transcription may fail")

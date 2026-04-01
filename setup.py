@@ -16,7 +16,7 @@ setup(
         ],
     },
     author="Your Name",
-    description="AI-powered meeting transcription and analysis for Mac",
+    description="Local meeting transcription for desktop",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
 )

@@ -6,6 +6,8 @@ Handles storing and loading user preferences like model selection.
 
 import json
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -62,9 +64,17 @@ class Config:
         """
         if config_path is None:
             # Use same directory logic as recorder state
-            if "StenoAI.app" in str(Path(__file__)) or "Applications" in str(Path(__file__)):
-                # Production: ~/Library/Application Support/stenoai
-                base_dir = Path.home() / "Library" / "Application Support" / "stenoai"
+            env_base_dir = os.environ.get("STENOAI_APP_DATA_DIR")
+            if env_base_dir:
+                base_dir = Path(env_base_dir)
+            elif "StenoAI.app" in str(Path(__file__)) or "Applications" in str(Path(__file__)):
+                if sys.platform == "darwin":
+                    base_dir = Path.home() / "Library" / "Application Support" / "stenoai"
+                elif sys.platform.startswith("win"):
+                    appdata = os.environ.get("APPDATA")
+                    base_dir = Path(appdata) / "stenoai" if appdata else Path.home() / "AppData" / "Roaming" / "stenoai"
+                else:
+                    base_dir = Path.home() / ".config" / "stenoai"
             else:
                 # Development: project root
                 base_dir = Path(__file__).parent.parent
