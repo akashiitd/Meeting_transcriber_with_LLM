@@ -53,6 +53,10 @@ function getPythonEnv() {
 async function findPythonCommand() {
   const candidates = isWindows()
     ? [
+        { command: 'py', args: ['-3.12', '--version'] },
+        { command: 'py', args: ['-3.11', '--version'] },
+        { command: 'py', args: ['-3.10', '--version'] },
+        { command: 'py', args: ['-3.9', '--version'] },
         { command: 'py', args: ['-3', '--version'] },
         { command: 'python', args: ['--version'] },
         { command: 'python3', args: ['--version'] }
@@ -258,7 +262,7 @@ function runPythonScript(script, args = [], silent = false) {
       sendDebugLog(`$ ${script} ${args.join(' ')}`);
     }
 
-    const process = spawn(pythonPath, [scriptPath, ...args], {
+    const process = spawn(pythonPath, ['-u', scriptPath, ...args], {
       cwd: getResourcesRoot(),
       env: getPythonEnv()
     });
@@ -658,7 +662,7 @@ ipcMain.handle('start-recording-ui', async (_, sessionName) => {
     let stdoutBuffer = '';
     
     // Start background recording with 60-minute limit
-    currentRecordingProcess = spawn(pythonPath, [scriptPath, 'record', '3600', actualSessionName], {
+    currentRecordingProcess = spawn(pythonPath, ['-u', scriptPath, 'record', '3600', actualSessionName], {
       cwd: getResourcesRoot(),
       env: getPythonEnv()
     });
@@ -1074,14 +1078,14 @@ ipcMain.handle('setup-python', async () => {
       sendDebugLog('Python virtual environment already exists');
     }
     
-    // Install requirements including Whisper
+    // Install the app's Python requirements.
     sendDebugLog('Installing Python dependencies...');
-    sendDebugLog('$ pip install -r requirements.txt openai-whisper');
+    sendDebugLog('$ pip install -r requirements.txt');
     
     return new Promise((resolve) => {
       const pythonPath = getVenvPythonPath();
       const requirementsPath = path.join(projectRoot, 'requirements.txt');
-      const process = spawn(pythonPath, ['-m', 'pip', 'install', '-r', requirementsPath, 'openai-whisper'], {
+      const process = spawn(pythonPath, ['-m', 'pip', 'install', '-r', requirementsPath], {
         cwd: projectRoot,
         stdio: 'pipe'
       });
@@ -1107,7 +1111,7 @@ ipcMain.handle('setup-python', async () => {
       process.on('close', (code) => {
         if (code === 0) {
           sendDebugLog('Python dependencies installation completed successfully');
-          resolve({ success: true, message: 'Python dependencies and Whisper installed' });
+          resolve({ success: true, message: 'Python dependencies installed' });
         } else {
           sendDebugLog(`Python dependencies installation failed with exit code: ${code}`);
           resolve({ success: false, error: `Installation failed: ${output}` });

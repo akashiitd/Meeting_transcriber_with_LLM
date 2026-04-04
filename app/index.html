@@ -761,53 +761,6 @@
             flex: 1;
         }
         
-        .reprocess-btn {
-            background: #333;
-            color: #fff;
-            border: 1px solid #555;
-            border-radius: 6px;
-            padding: 8px 16px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 16px;
-            flex-shrink: 0;
-        }
-        
-        .reprocess-btn:hover {
-            background: #444;
-        }
-        
-        .reprocess-btn:active {
-            transform: translateY(0);
-        }
-        
-        .reprocess-btn:disabled {
-            background: #333;
-            color: #999;
-            border-color: #555;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .reprocess-btn.processing {
-            background: #FF9800;
-            color: #fff;
-            border-color: #FF9800;
-        }
-        
-        .reprocess-spinner {
-            width: 14px;
-            height: 14px;
-            border: 2px solid transparent;
-            border-top: 2px solid currentColor;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        
         .transcript-container {
             position: relative;
         }
@@ -841,34 +794,6 @@
             background: #4CAF50;
             border-color: #4CAF50;
             opacity: 1;
-        }
-
-        .copy-notes-btn {
-            background: #333;
-            color: #fff;
-            border: 1px solid #555;
-            border-radius: 6px;
-            padding: 8px 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 14px;
-        }
-
-        .copy-notes-btn:hover {
-            background: #444;
-            border-color: #666;
-        }
-
-        .copy-notes-btn:active {
-            transform: translateY(1px);
-        }
-
-        .copy-notes-btn.copied {
-            background: #4CAF50;
-            border-color: #4CAF50;
         }
 
         .meeting-title-container {
@@ -1417,7 +1342,6 @@
         
         <div class="header-actions">
             <button class="settings-btn" id="debug-btn" title="Debug Logs" style="margin-right: 8px;">🔨</button>
-            <button class="settings-btn" id="ai-settings-btn" title="AI Settings" style="display: none; margin-right: 8px;">🧠</button>
             <button class="settings-btn" id="settings-btn" title="Settings">⚙️</button>
         </div>
     </div>
@@ -1482,67 +1406,11 @@
                                 </svg>
                             </button>
                         </div>
-                        <div style="display: flex; gap: 0px;">
-                            <button class="copy-notes-btn" id="copy-notes-btn" title="Copy all meeting notes to clipboard" style="display: none;">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                </svg>
-                            </button>
-                            <button class="reprocess-btn" id="reprocess-btn" title="Reprocess current meeting if analysis failed or needs improvement" style="display: none;">
-                                Reprocess
-                            </button>
-                        </div>
                     </div>
                     <div class="meeting-info">
                         <span id="detail-date">Date</span>
                         <span id="detail-duration">Duration</span>
                     </div>
-                </div>
-
-                <div class="meeting-section" style="display: none;">
-                    <h2 class="section-title">
-                        <span>📋</span> Summary
-                    </h2>
-                    <div class="section-content" id="detail-summary">
-                        Meeting summary will appear here...
-                    </div>
-                </div>
-
-                <div class="meeting-section" style="display: none;">
-                    <h2 class="section-title">
-                        <span>👥</span> Participants
-                    </h2>
-                    <div class="section-content" id="detail-participants">
-                        <!-- Participants will be loaded here -->
-                    </div>
-                </div>
-
-                <div class="meeting-section" id="discussion-areas-section" style="display: none;">
-                    <h2 class="section-title">
-                        <span>💬</span> Key Topics
-                    </h2>
-                    <div class="discussion-areas-container" id="detail-discussion-areas">
-                        <!-- Key topics will be loaded here -->
-                    </div>
-                </div>
-
-                <div class="meeting-section" style="display: none;">
-                    <h2 class="section-title">
-                        <span>🔑</span> Key Points
-                    </h2>
-                    <ul class="key-points-list" id="detail-key-points">
-                        <!-- Key points will be loaded here -->
-                    </ul>
-                </div>
-
-                <div class="meeting-section" style="display: none;">
-                    <h2 class="section-title">
-                        <span>✅</span> Action Items
-                    </h2>
-                    <ul class="action-items-list" id="detail-action-items">
-                        <!-- Action items will be loaded here -->
-                    </ul>
                 </div>
 
                 <div class="meeting-section">
@@ -1577,7 +1445,7 @@
         <div class="setup-content">
             <div class="setup-header">
                 <h2>🚀 Welcome to StenoAI</h2>
-                <p>Setting up your system for meeting transcription...</p>
+                <p>Setting up your system for dual-source meeting transcription...</p>
                 <p style="font-size: 14px; color: #aaa; margin-top: 12px;">💡 Scroll down to see logs</p>
             </div>
 
@@ -1618,31 +1486,6 @@
                         </div>
                     </div>
                 </div>
-                
-                <div class="setup-step" id="step-whisper">
-                    <div class="step-icon">🎤</div>
-                    <div class="step-content">
-                        <h3>Install Whisper</h3>
-                        <p>OpenAI's speech recognition engine</p>
-                        <div class="step-status" id="whisper-status">Pending...</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="whisper-progress"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="setup-step" id="step-ollama" style="display: none;">
-                    <div class="step-icon">🧠</div>
-                    <div class="step-content">
-                        <h3>Install ffmpeg</h3>
-                        <p>Audio/video processing toolkit for advanced audio handling</p>
-                        <div class="step-status" id="ollama-status">Pending...</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="ollama-progress"></div>
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="setup-step" id="step-ffmpeg">
                     <div class="step-icon">🎥</div>
                     <div class="step-content">
@@ -1764,43 +1607,6 @@ Session started - waiting for activity...
 </div>
     </div>
 
-    <!-- AI Settings Panel (slides in from right) -->
-    <div class="settings-panel" id="ai-settings-panel" style="display: none;">
-        <div class="settings-header">
-            <h2>🧠 AI Settings</h2>
-            <button class="close-settings" onclick="toggleAISettings()">✕</button>
-        </div>
-
-        <div class="settings-content">
-            <div class="settings-section">
-                <h3>🤖 Model Selection</h3>
-                <p>Choose which AI model to use for meeting summarization. Larger models provide better quality but take longer to process.</p>
-
-                <div style="margin-top: 15px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Current Model:</label>
-                    <div id="current-model-display" style="padding: 10px; background: #2a2a2a; border-radius: 4px; margin-bottom: 15px;">
-                        <span style="font-family: Monaco, monospace; color: #4CAF50;">Loading...</span>
-                    </div>
-
-                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Select Model:</label>
-                    <div id="model-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 450px; overflow-y: auto; padding-right: 5px;">
-                        Loading models...
-                    </div>
-                </div>
-            </div>
-
-            <div class="settings-section">
-                <h3>🧠 AI Prompts</h3>
-                <p>View the prompts used for meeting summarization and analysis.</p>
-
-                <h4>Summarization Prompt</h4>
-                <div class="prompt-viewer" id="summarization-prompt">
-                    Loading prompt...
-                </div>
-            </div>
-        </div>
-    </div>
-
     <script>
         const { ipcRenderer } = require('electron');
         
@@ -1812,7 +1618,6 @@ Session started - waiting for activity...
         const stopBtn = document.getElementById('stop-btn');
         const settingsBtn = document.getElementById('settings-btn');
         const debugBtn = document.getElementById('debug-btn');
-        const aiSettingsBtn = document.getElementById('ai-settings-btn');
         const meetingsList = document.getElementById('meetings-list');
         const emptyState = document.getElementById('empty-state');
         const meetingDetail = document.getElementById('meeting-detail');
@@ -1836,14 +1641,8 @@ Session started - waiting for activity...
         const detailTitle = document.getElementById('detail-title');
         const detailDate = document.getElementById('detail-date');
         const detailDuration = document.getElementById('detail-duration');
-        const detailSummary = document.getElementById('detail-summary');
-        const detailParticipants = document.getElementById('detail-participants');
-        const detailKeyPoints = document.getElementById('detail-key-points');
-        const detailActionItems = document.getElementById('detail-action-items');
         const detailTranscript = document.getElementById('detail-transcript');
-        const reprocessBtn = document.getElementById('reprocess-btn');
         const copyTranscriptBtn = document.getElementById('copy-transcript-btn');
-        const copyNotesBtn = document.getElementById('copy-notes-btn');
         const editTitleBtn = document.getElementById('edit-title-btn');
 
         // Setup elements
@@ -1857,13 +1656,13 @@ Session started - waiting for activity...
         let selectedMeeting = null;
         let recordingProcess = null;
         let statusCheckInterval = null;
-        let processingMeeting = null; // Track which meeting is currently being reprocessed
         let searchQuery = '';
         let recordingStartTime = null;
         let recordingTimer = null;
         let processingMeetings = new Set();
         let meetingsLastLoaded = 0; // Cache timestamp
         let currentCaptureMode = null;
+        let startControlsReady = false;
         
         // Update checking variables
         let updateInfo = null;
@@ -2328,7 +2127,17 @@ Session started - waiting for activity...
         
         
         // Manual start/stop recording functions
-        startBtn.addEventListener('click', async () => {
+        startBtn.addEventListener('click', async (event) => {
+            if (!startControlsReady) {
+                log('Recorder controls are still initializing');
+                return;
+            }
+
+            if (!event.isTrusted) {
+                log('Ignoring non-user start request');
+                return;
+            }
+
             // Check microphone permission before allowing recording
             try {
                 const micResult = await ipcRenderer.invoke('check-microphone-permission');
@@ -2366,7 +2175,12 @@ Session started - waiting for activity...
                     startStatusMonitoring();
                 } else {
                     log(`Failed to start: ${result.error}`);
-                    setUIState('ready');
+                    if (result.error && result.error.includes('already in progress')) {
+                        setUIState('recording');
+                        startStatusMonitoring();
+                    } else {
+                        setUIState('ready');
+                    }
                 }
             } catch (error) {
                 log(`🚫 Start error: ${error.message}`);
@@ -2494,11 +2308,22 @@ Session started - waiting for activity...
         // Check initial recording status once
         async function checkInitialStatus() {
             try {
-                const result = await ipcRenderer.invoke('get-status');
-                if (result.success && result.status.includes('RECORDING')) {
+                const [statusResult, queueResult] = await Promise.all([
+                    ipcRenderer.invoke('get-status'),
+                    ipcRenderer.invoke('get-queue-status').catch(() => ({ success: false }))
+                ]);
+
+                const uiRecording = queueResult.success && queueResult.hasRecording;
+                const backendRecording = statusResult.success && statusResult.status.includes('RECORDING');
+
+                if (uiRecording) {
                     log('Found active recording session - syncing UI state');
                     setUIState('recording');
                     startStatusMonitoring();
+                } else if (backendRecording) {
+                    log('Found stale recording state without a live recorder - clearing');
+                    await ipcRenderer.invoke('clear-state');
+                    setUIState('ready');
                 } else {
                     setUIState('ready');
                 }
@@ -2508,7 +2333,6 @@ Session started - waiting for activity...
             }
         }
 
-        // Auto-clear state on startup
         async function initializeApp() {
             // Clear debug logs for fresh start
             clearDebugLog();
@@ -2521,7 +2345,7 @@ Session started - waiting for activity...
             }
             
             // Parallel startup: Load meetings first (user sees content immediately),
-            // then clear state and check status in background
+            // then check status in the background without mutating recorder state.
             const startTime = Date.now();
             
             try {
@@ -2529,14 +2353,9 @@ Session started - waiting for activity...
                 const meetingsPromise = loadMeetings();
                 
                 // Do maintenance tasks in parallel
-                const maintenancePromise = Promise.all([
-                    ipcRenderer.invoke('clear-state').catch(err => 
-                        log(`State clear failed: ${err.message}`)
-                    ),
-                    checkInitialStatus().catch(err => 
-                        log(`Status check failed: ${err.message}`)
-                    )
-                ]);
+                const maintenancePromise = checkInitialStatus().catch(err =>
+                    log(`Status check failed: ${err.message}`)
+                );
                 
                 // Wait for meetings to load (priority), maintenance can finish in background
                 await meetingsPromise;
@@ -2610,92 +2429,6 @@ Session started - waiting for activity...
                 log('📋 Transcript copied to clipboard');
             } catch (error) {
                 log(`❌ Failed to copy transcript: ${error.message}`);
-            }
-        });
-
-        // Copy all meeting notes to clipboard
-        copyNotesBtn.addEventListener('click', async () => {
-            try {
-                if (!selectedMeeting) {
-                    log('❌ No meeting selected to copy');
-                    return;
-                }
-
-                // Format meeting notes as text
-                const meetingName = selectedMeeting.session_info?.name || 'Untitled Meeting';
-                const date = formatDate(selectedMeeting.session_info?.processed_at);
-                const duration = selectedMeeting.session_info?.duration_seconds ?
-                    `${Math.floor(selectedMeeting.session_info.duration_seconds / 60)}m ${selectedMeeting.session_info.duration_seconds % 60}s` :
-                    'Unknown';
-
-                let notesText = `${meetingName}\n`;
-                notesText += `Date: ${date}\n`;
-                notesText += `Duration: ${duration}\n`;
-                notesText += `\n`;
-
-                // Summary
-                if (selectedMeeting.summary) {
-                    notesText += `SUMMARY\n`;
-                    notesText += `${selectedMeeting.summary}\n\n`;
-                }
-
-                // Participants
-                if (selectedMeeting.participants && selectedMeeting.participants.length > 0) {
-                    notesText += `PARTICIPANTS\n`;
-                    selectedMeeting.participants.forEach(participant => {
-                        notesText += `- ${participant}\n`;
-                    });
-                    notesText += `\n`;
-                }
-
-                // Key Topics (Discussion Areas)
-                if (selectedMeeting.discussion_areas && selectedMeeting.discussion_areas.length > 0) {
-                    notesText += `KEY TOPICS\n`;
-                    selectedMeeting.discussion_areas.forEach(area => {
-                        notesText += `\n${area.title}\n`;
-                        notesText += `${area.analysis}\n`;
-                    });
-                    notesText += `\n`;
-                }
-
-                // Key Points
-                if (selectedMeeting.key_points && selectedMeeting.key_points.length > 0) {
-                    notesText += `KEY POINTS\n`;
-                    selectedMeeting.key_points.forEach(point => {
-                        notesText += `- ${point}\n`;
-                    });
-                    notesText += `\n`;
-                }
-
-                // Action Items
-                if (selectedMeeting.action_items && selectedMeeting.action_items.length > 0) {
-                    notesText += `ACTION ITEMS\n`;
-                    selectedMeeting.action_items.forEach(item => {
-                        notesText += `- ${item}\n`;
-                    });
-                }
-
-                await navigator.clipboard.writeText(notesText);
-
-                // Visual feedback
-                copyNotesBtn.classList.add('copied');
-                const originalHTML = copyNotesBtn.innerHTML;
-                copyNotesBtn.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="20,6 9,17 4,12"></polyline>
-                    </svg>
-                    Copied!
-                `;
-
-                // Reset after 2 seconds
-                setTimeout(() => {
-                    copyNotesBtn.classList.remove('copied');
-                    copyNotesBtn.innerHTML = originalHTML;
-                }, 2000);
-
-                log('📋 Meeting notes copied to clipboard');
-            } catch (error) {
-                log(`❌ Failed to copy notes: ${error.message}`);
             }
         });
 
@@ -2808,14 +2541,13 @@ Session started - waiting for activity...
             const debugConsole = document.getElementById('debug-console');
             debugConsole.textContent = 'StenoAI Setup Debug Console - Setup Started\n';
             debugLog('='.repeat(50));
-            debugLog('Starting First-Time Setup Process');
+            debugLog('Starting transcription setup process');
             debugLog('='.repeat(50));
             
                 const steps = [
                     { id: 'step-microphone', handler: 'request-microphone-permission', name: 'Microphone Access' },
                     { id: 'step-system', handler: 'setup-system-check', name: 'System Check' },
                     { id: 'step-python', handler: 'setup-python', name: 'Python Dependencies' },
-                    { id: 'step-whisper', handler: 'setup-whisper', name: 'Whisper Installation' },
                     { id: 'step-ffmpeg', handler: 'setup-ffmpeg', name: 'ffmpeg Installation' },
                     { id: 'step-test', handler: 'setup-test', name: 'System Test' }
                 ];
@@ -2997,20 +2729,17 @@ Session started - waiting for activity...
             } else if (status.includes('sounddevice')) {
                 updateStep('step-python', status.startsWith('✅') ? 'completed' : 'failed', detail);
             } else if (status.includes('whisper')) {
-                updateStep('step-whisper', status.startsWith('✅') ? 'completed' : 'failed', detail);
-            } else if (status.includes('Ollama') || status.includes('Llama')) {
-                // Only show as failed if actually missing, not just service down
-                if (detail.includes('not installed') || detail.includes('missing')) {
-                    updateStep('step-ollama', status.startsWith('✅') ? 'completed' : 'failed', detail);
-                } else if (status.startsWith('✅')) {
-                    updateStep('step-ollama', 'completed', detail);
-                }
+                updateStep('step-python', status.startsWith('✅') ? 'completed' : 'failed', detail);
             }
         }
         
         function updateStep(stepId, state, message) {
             const element = document.getElementById(stepId);
             const statusElement = document.getElementById(stepId.replace('step-', '') + '-status');
+
+            if (!element || !statusElement) {
+                return;
+            }
             
             element.classList.remove('active', 'completed', 'failed');
             element.classList.add(state);
@@ -3024,23 +2753,6 @@ Session started - waiting for activity...
             filterMeetings(); // Apply current search filter and render
         });
         
-        // Listen for model pull progress
-        ipcRenderer.on('model-pull-progress', (event, data) => {
-            updateModelProgress(data.model, data.progress);
-        });
-
-        // Listen for model pull completion
-        ipcRenderer.on('model-pull-complete', (event, data) => {
-            hideModelDownloading(data.model);
-
-            if (data.success) {
-                showModelNotification(`Successfully downloaded ${data.model}!`, 'success');
-                loadModels(); // Reload to show as installed
-            } else {
-                showModelNotification(`Failed to download ${data.model}: ${data.error}`, 'error');
-            }
-        });
-
         // Listen for processing completion events
         ipcRenderer.on('processing-complete', (event, data) => {
             log(`Processing complete for: ${data.sessionName}`);
@@ -3118,234 +2830,7 @@ Session started - waiting for activity...
             }
         }
 
-        let aiSettingsVisible = false;
-
-        function toggleAISettings() {
-            const aiSettingsPanel = document.getElementById('ai-settings-panel');
-            aiSettingsVisible = !aiSettingsVisible;
-
-            if (aiSettingsVisible) {
-                aiSettingsPanel.style.right = '0';
-                loadPrompts();
-                loadModels();
-            } else {
-                aiSettingsPanel.style.right = '-400px';
-            }
-        }
-        
-        async function loadPrompts() {
-            try {
-                const prompts = await ipcRenderer.invoke('get-ai-prompts');
-                const promptElement = document.getElementById('summarization-prompt');
-                
-                if (prompts.success) {
-                    promptElement.textContent = prompts.summarization || 'Prompt not available';
-                } else {
-                    promptElement.textContent = 'Failed to load prompts';
-                }
-            } catch (error) {
-                document.getElementById('summarization-prompt').textContent = 'Failed to load prompts';
-            }
-            
-            // Load app version
-            try {
-                const versionInfo = await ipcRenderer.invoke('get-app-version');
-                const versionElement = document.getElementById('app-version');
-                
-                if (versionInfo.success) {
-                    versionElement.textContent = `v${versionInfo.version}`;
-                } else {
-                    versionElement.textContent = 'Unknown';
-                }
-            } catch (error) {
-                document.getElementById('app-version').textContent = 'Unknown';
-            }
-        }
-
-        // Model management functions
-        async function loadModels() {
-            try {
-                const result = await ipcRenderer.invoke('list-models');
-
-                if (result.success) {
-                    displayCurrentModel(result.current_model);
-                    displayModelList(result.supported_models, result.current_model);
-                } else {
-                    document.getElementById('current-model-display').innerHTML = '<span style="color: #f44336;">Failed to load models</span>';
-                    document.getElementById('model-list').innerHTML = '<span style="color: #f44336;">Failed to load model list</span>';
-                }
-            } catch (error) {
-                console.error('Error loading models:', error);
-                document.getElementById('current-model-display').innerHTML = '<span style="color: #f44336;">Error loading models</span>';
-                document.getElementById('model-list').innerHTML = '<span style="color: #f44336;">Error loading model list</span>';
-            }
-        }
-
-        function displayCurrentModel(modelName) {
-            const currentModelDisplay = document.getElementById('current-model-display');
-            currentModelDisplay.innerHTML = `<span style="font-family: Monaco, monospace; color: #4CAF50;">${modelName}</span>`;
-        }
-
-        function displayModelList(models, currentModel) {
-            const modelListDiv = document.getElementById('model-list');
-            modelListDiv.innerHTML = '';
-
-            for (const [modelName, modelInfo] of Object.entries(models)) {
-                const isCurrentModel = modelName === currentModel;
-
-                const modelCard = document.createElement('div');
-                modelCard.style.cssText = `
-                    padding: 12px;
-                    background: ${isCurrentModel ? '#2a4a2a' : '#2a2a2a'};
-                    border: 2px solid ${isCurrentModel ? '#4CAF50' : '#444'};
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                `;
-
-                modelCard.setAttribute('data-model-name', modelName);
-                modelCard.setAttribute('data-model-size', modelInfo.size);
-
-                // Extract tag from description (e.g., "(default)")
-                const tagMatch = modelInfo.description.match(/\((default|recommended)\)/i);
-                const tag = tagMatch ? ` ${tagMatch[0]}` : '';
-
-                modelCard.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="flex: 1;">
-                            <div style="font-weight: 600; margin-bottom: 4px; font-family: Monaco, monospace;">
-                                ${modelName}${tag}
-                                ${isCurrentModel ? '<span style="color: #4CAF50; margin-left: 8px;">✓ Active</span>' : ''}
-                            </div>
-                            <div style="font-size: 12px; color: #aaa;">
-                                Size: ${modelInfo.size} | Speed: ${modelInfo.speed} | Quality: ${modelInfo.quality}
-                            </div>
-                            <div class="model-progress" style="display: none; margin-top: 8px; padding: 8px; background: #1a1a1a; border-radius: 4px;">
-                                <div class="progress-text" style="font-size: 11px; color: #4CAF50; font-family: Monaco, monospace;">Downloading...</div>
-                            </div>
-                        </div>
-                        <div style="margin-left: 15px;">
-                            ${isCurrentModel ?
-                                '<span style="color: #4CAF50; font-size: 24px;">●</span>' :
-                                '<button class="btn" onclick="selectModel(\'' + modelName + '\')" style="margin: 0; padding: 6px 12px; font-size: 12px;">Select</button>'
-                            }
-                        </div>
-                    </div>
-                `;
-
-                if (!isCurrentModel) {
-                    modelCard.onmouseenter = () => {
-                        modelCard.style.borderColor = '#4CAF50';
-                        modelCard.style.background = '#2a3a2a';
-                    };
-                    modelCard.onmouseleave = () => {
-                        modelCard.style.borderColor = '#444';
-                        modelCard.style.background = '#2a2a2a';
-                    };
-                }
-
-                modelListDiv.appendChild(modelCard);
-            }
-        }
-
-        async function selectModel(modelName) {
-            try {
-                // Check if model is already installed
-                const checkResult = await ipcRenderer.invoke('check-model-installed', modelName);
-
-                if (!checkResult.success) {
-                    alert(`Error checking model status: ${checkResult.error}`);
-                    return;
-                }
-
-                const isInstalled = checkResult.installed;
-                let confirmMsg;
-
-                if (isInstalled) {
-                    confirmMsg = `Switch to model: ${modelName}?\n\nThis model is already installed and ready to use.`;
-                } else {
-                    confirmMsg = `Switch to model: ${modelName}?\n\nThis model will be downloaded (${getModelSize(modelName)}).\n\n⚠️ WARNING: Model downloads will pause any active summarization.\nWait for current processing to finish before downloading.`;
-                }
-
-                if (!confirm(confirmMsg)) {
-                    return;
-                }
-
-                // Set the model preference
-                const result = await ipcRenderer.invoke('set-model', modelName);
-
-                if (!result.success) {
-                    alert(`Failed to set model: ${result.error}`);
-                    return;
-                }
-
-                // If already installed, just reload and show success
-                if (isInstalled) {
-                    showModelNotification(`Switched to ${modelName}!`, 'success');
-                    loadModels();
-                    return;
-                }
-
-                // Model needs to be downloaded - start non-blocking pull
-                showModelDownloading(modelName);
-
-                // Start download (non-blocking - returns immediately)
-                ipcRenderer.invoke('pull-model', modelName).catch(error => {
-                    console.error('Error starting model pull:', error);
-                    hideModelDownloading(modelName);
-                    showModelNotification(`Failed to start download: ${error.message}`, 'error');
-                });
-
-            } catch (error) {
-                console.error('Error selecting model:', error);
-                alert(`Error selecting model: ${error.message}`);
-            }
-        }
-
-        function getModelSize(modelName) {
-            const modelList = document.getElementById('model-list');
-            const modelCards = modelList.querySelectorAll('[data-model-name]');
-            for (const card of modelCards) {
-                if (card.dataset.modelName === modelName) {
-                    const sizeText = card.dataset.modelSize;
-                    return sizeText || 'unknown size';
-                }
-            }
-            return 'unknown size';
-        }
-
-        function showModelDownloading(modelName) {
-            const modelCard = document.querySelector(`[data-model-name="${modelName}"]`);
-            if (!modelCard) return;
-
-            const progressDiv = modelCard.querySelector('.model-progress');
-            if (progressDiv) {
-                progressDiv.style.display = 'block';
-                progressDiv.querySelector('.progress-text').textContent = 'Starting download...';
-            }
-        }
-
-        function hideModelDownloading(modelName) {
-            const modelCard = document.querySelector(`[data-model-name="${modelName}"]`);
-            if (!modelCard) return;
-
-            const progressDiv = modelCard.querySelector('.model-progress');
-            if (progressDiv) {
-                progressDiv.style.display = 'none';
-            }
-        }
-
-        function updateModelProgress(modelName, progressText) {
-            const modelCard = document.querySelector(`[data-model-name="${modelName}"]`);
-            if (!modelCard) return;
-
-            const progressDiv = modelCard.querySelector('.model-progress');
-            if (progressDiv) {
-                progressDiv.querySelector('.progress-text').textContent = progressText;
-            }
-        }
-
-        function showModelNotification(message, type = 'info') {
+        function showToast(message, type = 'info') {
             // In-app notification toast (bottom-right, matches app theme)
             const notification = document.createElement('div');
             notification.style.cssText = `
@@ -3387,6 +2872,19 @@ Session started - waiting for activity...
                 console.error('Error loading notification settings:', error);
                 document.getElementById('notifications-toggle').checked = true;
             }
+
+            try {
+                const versionInfo = await ipcRenderer.invoke('get-app-version');
+                const versionElement = document.getElementById('app-version');
+
+                if (versionInfo.success) {
+                    versionElement.textContent = `v${versionInfo.version}`;
+                } else {
+                    versionElement.textContent = 'Unknown';
+                }
+            } catch (error) {
+                document.getElementById('app-version').textContent = 'Unknown';
+            }
         }
 
         async function showDesktopNotification(title, options) {
@@ -3417,19 +2915,19 @@ Session started - waiting for activity...
                         const result = await ipcRenderer.invoke('set-notifications', enabled);
 
                         if (result.success) {
-                            showModelNotification(
+                            showToast(
                                 `Desktop notifications ${enabled ? 'enabled' : 'disabled'}`,
                                 'success'
                             );
                         } else {
                             console.error('Failed to save notification setting:', result.error);
-                            showModelNotification('Failed to save setting', 'error');
+                            showToast('Failed to save setting', 'error');
                             // Revert toggle
                             e.target.checked = !enabled;
                         }
                     } catch (error) {
                         console.error('Error saving notification setting:', error);
-                        showModelNotification('Failed to save setting', 'error');
+                        showToast('Failed to save setting', 'error');
                         e.target.checked = !e.target.checked;
                     }
                 });
@@ -3641,6 +3139,7 @@ Session started - waiting for activity...
         // Initialize
         initializeApp().then(() => {
             runStartupCheck().then(() => {
+                startControlsReady = true;
                 // Check for updates after app initialization
                 setTimeout(() => {
                     // Only check if not dismissed this session

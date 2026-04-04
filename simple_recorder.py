@@ -47,6 +47,13 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Windows terminals and spawned subprocess pipes may default to a legacy code page.
+# Force UTF-8 so status output with symbols does not crash the CLI or Electron bridge.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def get_app_data_dir() -> Path:
     """Return a per-user application data directory for the current platform."""

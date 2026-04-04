@@ -262,6 +262,10 @@ class SystemAudioCapture:
         try:
             devices = sd.query_devices()
             hostapis = sd.query_hostapis()
+            hostapi_names = {
+                index: api.get("name", "")
+                for index, api in enumerate(hostapis)
+            }
             wasapi_hostapis = {
                 index for index, api in enumerate(hostapis)
                 if "wasapi" in api.get("name", "").lower()
@@ -289,22 +293,69 @@ class SystemAudioCapture:
                 if device.get("hostapi") in wasapi_hostapis and device.get("max_output_channels", 0) > 0:
                     candidate_ids.append(i)
 
-            for device_id in candidate_ids:
-                device = devices[device_id]
-                if device.get("hostapi") not in wasapi_hostapis:
-                    continue
-                output_channels = int(device.get("max_output_channels", 0))
-                if output_channels <= 0:
+            loopback_settings = None
+            try:
+                loopback_settings = sd.WasapiSettings(loopback=True)
+            except TypeError:
+                logger.info(
+                    "This sounddevice build does not support WasapiSettings(loopback=True); "
+                    "falling back to real input devices like VB-Cable or Stereo Mix."
+                )
+
+            if loopback_settings is not None:
+                for device_id in candidate_ids:
+                    device = devices[device_id]
+                    if device.get("hostapi") not in wasapi_hostapis:
+                        continue
+                    output_channels = int(device.get("max_output_channels", 0))
+                    if output_channels <= 0:
+                        continue
+
+                    self.channel_count = max(1, min(2, output_channels))
+                    self.sample_rate = int(device.get("default_samplerate") or self.sample_rate or 48000)
+                    self.extra_settings = loopback_settings
+                    self.capture_mode = "wasapi-loopback"
+                    logger.info(f"Found WASAPI loopback device: {device['name']} (ID: {device_id})")
+                    return device_id
+
+            # Fallback: use actual input devices that carry system audio, e.g. VB-Cable or Stereo Mix.
+            fallback_patterns = (
+                "cable output",
+                "stereo mix",
+                "what u hear",
+                "wave out mix",
+                "monitor of",
+            )
+            fallback_candidates = []
+            for i, device in enumerate(devices):
+                input_channels = int(device.get("max_input_channels", 0))
+                if input_channels <= 0:
                     continue
 
-                self.channel_count = max(1, min(2, output_channels))
+                name = device.get("name", "")
+                name_lower = name.lower()
+                if not any(pattern in name_lower for pattern in fallback_patterns):
+                    continue
+
+                hostapi_name = hostapi_names.get(device.get("hostapi"), "").lower()
+                hostapi_rank = 0 if "wasapi" in hostapi_name else 1 if "mme" in hostapi_name else 2
+                pattern_rank = 0 if "cable output" in name_lower else 1
+                fallback_candidates.append((hostapi_rank, pattern_rank, i, device))
+
+            if fallback_candidates:
+                fallback_candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+                _, _, device_id, device = fallback_candidates[0]
+                self.channel_count = max(1, min(2, int(device.get("max_input_channels", 1))))
                 self.sample_rate = int(device.get("default_samplerate") or self.sample_rate or 48000)
-                self.extra_settings = sd.WasapiSettings(loopback=True)
-                self.capture_mode = "wasapi-loopback"
-                logger.info(f"Found WASAPI loopback device: {device['name']} (ID: {device_id})")
+                self.extra_settings = None
+                self.capture_mode = "virtual-cable"
+                logger.info(
+                    f"Found Windows system-audio input device: {device['name']} (ID: {device_id}, host API: "
+                    f"{hostapi_names.get(device.get('hostapi'), 'unknown')})"
+                )
                 return device_id
 
-            logger.warning("No WASAPI output device available for system audio capture")
+            logger.warning("No WASAPI loopback or virtual system-audio input device available for capture")
             return None
         except Exception as e:
             logger.error(f"Error finding Windows loopback device: {e}")
@@ -332,7 +383,7 @@ class SystemAudioCapture:
                 logger.error("  4. Set Multi-Output as your system output")
             elif sys.platform.startswith("win"):
                 logger.error("Windows loopback device not available")
-                logger.error("Make sure your default playback device is active and WASAPI is enabled")
+                logger.error("Use a supported loopback setup or route playback through VB-Cable / Stereo Mix")
             return False
 
         if not SOUNDDEVICE_AVAILABLE:
@@ -391,11 +442,55 @@ class MicrophoneCapture:
     """Captures microphone audio using sounddevice."""
 
     def __init__(self, sample_rate: int = 16000, device: Optional[int] = None):
-        self.sample_rate = sample_rate
-        self.device = device
+        self.device = device if device is not None else self._find_default_input_device()
+        self.sample_rate = self._resolve_input_sample_rate(sample_rate)
         self.running = False
         self.audio_queue: queue.Queue = queue.Queue()
         self.stream: Optional[Any] = None
+
+    def _find_default_input_device(self) -> Optional[int]:
+        """Prefer WASAPI input devices on Windows to keep host APIs aligned."""
+        if not SOUNDDEVICE_AVAILABLE:
+            return None
+
+        try:
+            if sys.platform.startswith("win"):
+                hostapis = sd.query_hostapis()
+                wasapi_hostapis = {
+                    index for index, api in enumerate(hostapis)
+                    if "wasapi" in api.get("name", "").lower()
+                }
+                for hostapi_index in wasapi_hostapis:
+                    default_input = hostapis[hostapi_index].get("default_input_device")
+                    if isinstance(default_input, int) and default_input >= 0:
+                        return default_input
+
+            default_devices = sd.default.device
+            if isinstance(default_devices, (list, tuple)) and len(default_devices) > 0:
+                default_input = default_devices[0]
+                if isinstance(default_input, int) and default_input >= 0:
+                    return default_input
+        except Exception as e:
+            logger.warning(f"Could not determine default microphone device: {e}")
+
+        return None
+
+    def _resolve_input_sample_rate(self, requested_sample_rate: int) -> int:
+        """Use the device's preferred sample rate when Windows rejects 16 kHz input."""
+        if not SOUNDDEVICE_AVAILABLE or self.device is None:
+            return requested_sample_rate
+
+        try:
+            device_info = sd.query_devices(self.device)
+            default_sample_rate = int(device_info.get("default_samplerate") or requested_sample_rate)
+
+            if sys.platform.startswith("win"):
+                return default_sample_rate
+
+            return requested_sample_rate
+        except Exception as e:
+            logger.warning(f"Could not determine microphone sample rate: {e}")
+            return requested_sample_rate
 
     def _audio_callback(self, indata, frames, time_info, status):
         """Callback for audio stream."""
@@ -425,7 +520,9 @@ class MicrophoneCapture:
             )
             self.stream.start()
             self.running = True
-            logger.info("Microphone capture started")
+            logger.info(
+                f"Microphone capture started (device={self.device}, sample_rate={self.sample_rate})"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to start microphone capture: {e}")
@@ -581,6 +678,8 @@ class RealtimeTranscriber:
             if not self.mic_capture.start():
                 logger.warning("Microphone capture not available")
                 self.mic_capture = None
+            else:
+                self.mic_buffer = AudioBuffer(sample_rate=self.mic_capture.sample_rate)
 
         if not self.system_capture and not self.mic_capture:
             logger.error("No audio capture available")
@@ -603,6 +702,7 @@ class RealtimeTranscriber:
 
     def stop(self) -> List[TranscriptSegment]:
         """Stop transcription and return all segments."""
+        shutdown_time = max(0.0, time.time() - self.start_time) if self.start_time else 0.0
         self.running = False
 
         # Stop audio capture
@@ -617,10 +717,61 @@ class RealtimeTranscriber:
         if self.transcription_thread:
             self.transcription_thread.join(timeout=5)
 
+        # Drain any chunks queued after the last audio-loop iteration, then flush both
+        # buffers once so the final few seconds of a meeting are not dropped on shutdown.
+        self._drain_pending_capture_audio()
+        self._flush_pending_buffers(reference_time=shutdown_time)
+
         logger.info("Real-time transcription stopped")
 
         with self.segments_lock:
             return list(self.segments)
+
+    def _drain_pending_capture_audio(self) -> None:
+        """Move any queued capture chunks into the transcription buffers."""
+        capture_pairs = (
+            (self.system_capture, self.system_buffer),
+            (self.mic_capture, self.mic_buffer),
+        )
+
+        for capture, buffer in capture_pairs:
+            if not capture or not buffer or not hasattr(capture, "audio_queue"):
+                continue
+
+            while True:
+                try:
+                    chunk = capture.audio_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+                if chunk is not None:
+                    buffer.add_chunk(chunk)
+
+    def _flush_pending_buffers(self, reference_time: Optional[float] = None) -> None:
+        """Transcribe any remaining buffered audio during shutdown."""
+        pending_buffers = (
+            (self.system_buffer, "system", "Other"),
+            (self.mic_buffer, "microphone", "You"),
+        )
+
+        for buffer, source, speaker in pending_buffers:
+            if not buffer:
+                continue
+
+            buffered_duration = buffer.duration()
+            if buffered_duration < 0.5:
+                continue
+
+            logger.info(
+                f"Flushing pending {source} audio during shutdown "
+                f"({buffered_duration:.2f}s buffered)"
+            )
+            self._transcribe_buffer(
+                buffer,
+                source=source,
+                speaker=speaker,
+                reference_time=reference_time,
+            )
 
     def _audio_loop(self) -> None:
         """Collect audio from capture sources."""
@@ -640,36 +791,44 @@ class RealtimeTranscriber:
     def _transcription_loop(self) -> None:
         """Periodically transcribe accumulated audio."""
         while self.running:
-            current_time = time.time() - self.start_time
+            try:
+                current_time = time.time() - self.start_time
 
-            # Wait for enough audio to accumulate
-            if current_time - self.last_transcription_time < self.chunk_duration:
-                time.sleep(0.1)
-                continue
+                # Wait for enough audio to accumulate
+                if current_time - self.last_transcription_time < self.chunk_duration:
+                    time.sleep(0.1)
+                    continue
 
-            # Transcribe microphone audio (primary source for "You")
-            if self.mic_buffer.duration() >= self.chunk_duration:
-                self._transcribe_buffer(
-                    self.mic_buffer,
-                    source="microphone",
-                    speaker="You"
-                )
+                # Process system audio first on Windows so speaker audio is not starved by a
+                # silent microphone buffer on slower CPU inference.
+                if self.system_buffer and self.system_buffer.duration() >= self.chunk_duration:
+                    self._transcribe_buffer(
+                        self.system_buffer,
+                        source="system",
+                        speaker="Other",
+                        reference_time=current_time,
+                    )
 
-            # Transcribe system audio (for "Others")
-            if self.system_buffer.duration() >= self.chunk_duration:
-                self._transcribe_buffer(
-                    self.system_buffer,
-                    source="system",
-                    speaker="Other"
-                )
+                # Transcribe microphone audio for "You"
+                if self.mic_buffer and self.mic_buffer.duration() >= self.chunk_duration:
+                    self._transcribe_buffer(
+                        self.mic_buffer,
+                        source="microphone",
+                        speaker="You",
+                        reference_time=current_time,
+                    )
 
-            self.last_transcription_time = current_time
+                self.last_transcription_time = current_time
+            except Exception as e:
+                logger.error(f"Transcription loop error: {e}")
+                time.sleep(0.2)
 
     def _transcribe_buffer(
         self,
         buffer: AudioBuffer,
         source: str,
-        speaker: str
+        speaker: str,
+        reference_time: Optional[float] = None,
     ) -> None:
         """Transcribe audio from a buffer using mlx-whisper (GPU) or faster-whisper (CPU fallback)."""
         if not self.model:
@@ -685,8 +844,22 @@ class RealtimeTranscriber:
         if NUMPY_AVAILABLE and buffer.sample_rate != 16000:
             audio = self._resample(audio, buffer.sample_rate, 16000)
 
+        # Skip near-silent buffers before invoking Whisper. This is especially important on
+        # Windows where the microphone buffer may fill with silence and otherwise block the
+        # system-audio transcription pass on slower CPU inference.
+        if NUMPY_AVAILABLE:
+            peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+            mean_abs = float(np.mean(np.abs(audio))) if len(audio) else 0.0
+            if peak < 0.015 and mean_abs < 0.002:
+                logger.info(
+                    f"Skipping near-silent {source} buffer "
+                    f"(peak={peak:.4f}, mean_abs={mean_abs:.4f})"
+                )
+                buffer.clear()
+                return
+
         try:
-            current_time = time.time() - self.start_time
+            current_time = reference_time if reference_time is not None else time.time() - self.start_time
 
             # Use mlx-whisper if available (GPU accelerated)
             if hasattr(self, 'mlx_whisper') and self.mlx_whisper is not None:
