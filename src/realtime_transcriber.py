@@ -56,6 +56,43 @@ REPETITION_TRIGGER_WORDS = {
 }
 
 
+def _is_virtual_audio_device_name(device_name: str) -> bool:
+    """Return True for virtual routing devices that shouldn't be used for direct listening."""
+    name = device_name.lower()
+    virtual_markers = (
+        "cable ",
+        "vb-audio",
+        "stereo mix",
+        "what u hear",
+        "wave out mix",
+        "blackhole",
+        "monitor of",
+    )
+    return any(marker in name for marker in virtual_markers)
+
+
+def _resample_audio_chunk(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """Resample mono or multichannel float audio using linear interpolation."""
+    if not NUMPY_AVAILABLE or orig_sr == target_sr:
+        return np.asarray(audio, dtype=np.float32)
+
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.ndim == 1:
+        audio = audio.reshape(-1, 1)
+
+    if len(audio) == 0:
+        return audio
+
+    target_length = max(1, int(len(audio) * target_sr / orig_sr))
+    source_positions = np.arange(len(audio), dtype=np.float32)
+    target_positions = np.linspace(0, len(audio) - 1, target_length, dtype=np.float32)
+    channels = [
+        np.interp(target_positions, source_positions, audio[:, channel_index])
+        for channel_index in range(audio.shape[1])
+    ]
+    return np.stack(channels, axis=1).astype(np.float32)
+
+
 def is_repetitive_hallucination(text: str) -> bool:
     """
     Detect repetitive hallucination patterns like 'okay, okay, okay...'
@@ -197,6 +234,223 @@ class AudioBuffer:
             return len(self.buffer) / self.sample_rate
 
 
+class SystemAudioMonitor:
+    """Mirror captured virtual-cable audio to a physical output device for live listening."""
+
+    def __init__(self, sample_rate: int, preferred_device: Optional[int] = None):
+        self.sample_rate = sample_rate
+        self.preferred_device = preferred_device
+        self.output_device_id: Optional[int] = None
+        self.output_sample_rate = sample_rate
+        self.output_channels = 2
+        self.audio_queue: queue.Queue = queue.Queue(maxsize=32)
+        self.stream: Optional[Any] = None
+        self.running = False
+        self._current_chunk: Optional[np.ndarray] = None
+        self._current_offset = 0
+
+        self.output_device_id = self._find_output_device()
+
+    def _find_output_device(self) -> Optional[int]:
+        """Prefer a real playback device instead of another virtual routing endpoint."""
+        if not SOUNDDEVICE_AVAILABLE:
+            return None
+
+        try:
+            devices = sd.query_devices()
+            hostapis = sd.query_hostapis()
+
+            preferred_output = self.preferred_device
+            if preferred_output is None:
+                env_override = os.environ.get("STENOAI_MONITOR_OUTPUT_DEVICE")
+                if env_override and env_override.isdigit():
+                    preferred_output = int(env_override)
+
+            if isinstance(preferred_output, int):
+                device = devices[preferred_output]
+                if device.get("max_output_channels", 0) > 0:
+                    return preferred_output
+
+            default_output = None
+            try:
+                if sys.platform.startswith("win"):
+                    wasapi_defaults = [
+                        api.get("default_output_device")
+                        for api in hostapis
+                        if "wasapi" in api.get("name", "").lower()
+                    ]
+                    default_output = next(
+                        (
+                            device_id
+                            for device_id in wasapi_defaults
+                            if isinstance(device_id, int) and device_id >= 0
+                        ),
+                        None,
+                    )
+
+                default_devices = sd.default.device
+                if default_output is None and isinstance(default_devices, (list, tuple)) and len(default_devices) > 1:
+                    default_output = default_devices[1]
+            except Exception:
+                default_output = None
+
+            def is_physical_output(device_index: int) -> bool:
+                device = devices[device_index]
+                if int(device.get("max_output_channels", 0)) <= 0:
+                    return False
+                return not _is_virtual_audio_device_name(device.get("name", ""))
+
+            if isinstance(default_output, int) and default_output >= 0 and is_physical_output(default_output):
+                return default_output
+
+            candidates = []
+            for index, device in enumerate(devices):
+                if not is_physical_output(index):
+                    continue
+
+                hostapi = hostapis[device.get("hostapi", -1)] if device.get("hostapi", -1) >= 0 else {}
+                host_name = hostapi.get("name", "").lower()
+                host_rank = 0 if "wasapi" in host_name else 1 if "directsound" in host_name else 2
+                candidates.append((host_rank, index))
+
+            if candidates:
+                candidates.sort(key=lambda item: (item[0], item[1]))
+                return candidates[0][1]
+        except Exception as e:
+            logger.warning(f"Failed to determine monitor output device: {e}")
+
+        return None
+
+    def _fit_channels(self, chunk: np.ndarray, channel_count: int) -> np.ndarray:
+        """Match chunk channels to the output device shape."""
+        if chunk.ndim == 1:
+            chunk = chunk.reshape(-1, 1)
+
+        if chunk.shape[1] == channel_count:
+            return chunk
+
+        if channel_count == 1:
+            return np.mean(chunk, axis=1, keepdims=True)
+
+        if chunk.shape[1] == 1:
+            return np.repeat(chunk, channel_count, axis=1)
+
+        if chunk.shape[1] > channel_count:
+            return chunk[:, :channel_count]
+
+        repeats = int(np.ceil(channel_count / chunk.shape[1]))
+        expanded = np.tile(chunk, (1, repeats))
+        return expanded[:, :channel_count]
+
+    def _output_callback(self, outdata, frames, time_info, status):
+        """Feed queued captured audio into the monitoring output stream."""
+        if status:
+            logger.warning(f"System audio monitor callback status: {status}")
+
+        outdata.fill(0)
+        frames_written = 0
+
+        while frames_written < frames:
+            if self._current_chunk is None or self._current_offset >= len(self._current_chunk):
+                try:
+                    self._current_chunk = self.audio_queue.get_nowait()
+                    self._current_offset = 0
+                except queue.Empty:
+                    break
+
+            remaining_chunk = len(self._current_chunk) - self._current_offset
+            frames_to_copy = min(frames - frames_written, remaining_chunk)
+            segment = self._current_chunk[self._current_offset:self._current_offset + frames_to_copy]
+            outdata[frames_written:frames_written + frames_to_copy] = self._fit_channels(
+                segment,
+                outdata.shape[1],
+            )
+            self._current_offset += frames_to_copy
+            frames_written += frames_to_copy
+
+    def start(self) -> bool:
+        """Start monitoring captured system audio to a real playback device."""
+        if not SOUNDDEVICE_AVAILABLE or self.output_device_id is None:
+            return False
+
+        if self.running:
+            return True
+
+        try:
+            device_info = sd.query_devices(self.output_device_id)
+            self.output_channels = max(1, min(2, int(device_info.get("max_output_channels", 2))))
+            self.output_sample_rate = int(device_info.get("default_samplerate") or self.sample_rate)
+
+            self.stream = sd.OutputStream(
+                samplerate=self.output_sample_rate,
+                channels=self.output_channels,
+                dtype="float32",
+                device=self.output_device_id,
+                callback=self._output_callback,
+                blocksize=int(self.output_sample_rate * 0.2),
+            )
+            self.stream.start()
+            self.running = True
+            logger.info(
+                f"System audio monitoring enabled on device {self.output_device_id} "
+                f"(sample_rate={self.output_sample_rate}, channels={self.output_channels})"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to start system audio monitoring: {e}")
+            self.stream = None
+            return False
+
+    def enqueue_chunk(self, chunk: np.ndarray) -> None:
+        """Queue captured audio for local playback on the monitor device."""
+        if not self.running or not NUMPY_AVAILABLE:
+            return
+
+        try:
+            monitor_chunk = np.asarray(chunk, dtype=np.float32)
+            if monitor_chunk.ndim == 1:
+                monitor_chunk = monitor_chunk.reshape(-1, 1)
+
+            if self.output_sample_rate != self.sample_rate:
+                monitor_chunk = _resample_audio_chunk(
+                    monitor_chunk,
+                    self.sample_rate,
+                    self.output_sample_rate,
+                )
+
+            while self.audio_queue.qsize() >= 8:
+                try:
+                    self.audio_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+            self.audio_queue.put_nowait(monitor_chunk)
+        except queue.Full:
+            pass
+        except Exception as e:
+            logger.debug(f"Failed to enqueue monitor audio chunk: {e}")
+
+    def stop(self) -> None:
+        """Stop the monitor playback stream."""
+        self.running = False
+        self._current_chunk = None
+        self._current_offset = 0
+
+        if self.stream:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception as e:
+                logger.warning(f"Error stopping system audio monitor: {e}")
+            self.stream = None
+
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+
 class SystemAudioCapture:
     """Captures system audio using platform-specific loopback devices."""
 
@@ -205,6 +459,7 @@ class SystemAudioCapture:
         self.running = False
         self.audio_queue: queue.Queue = queue.Queue()
         self.stream: Optional[Any] = None
+        self.monitor: Optional[SystemAudioMonitor] = None
         self.device_id: Optional[int] = None
         self.channel_count = 1
         self.extra_settings: Optional[Any] = None
@@ -367,6 +622,8 @@ class SystemAudioCapture:
             logger.warning(f"System audio callback status: {status}")
         if NUMPY_AVAILABLE and self.running:
             chunk = indata.copy()
+            if self.monitor:
+                self.monitor.enqueue_chunk(chunk)
             if chunk.ndim > 1 and chunk.shape[1] > 1:
                 chunk = np.mean(chunk, axis=1, keepdims=True)
             self.audio_queue.put(chunk.astype(np.float32, copy=False))
@@ -409,6 +666,12 @@ class SystemAudioCapture:
             self.stream = sd.InputStream(**stream_kwargs)
             self.stream.start()
             self.running = True
+
+            if sys.platform.startswith("win") and self.capture_mode == "virtual-cable":
+                self.monitor = SystemAudioMonitor(sample_rate=self.sample_rate)
+                if not self.monitor.start():
+                    self.monitor = None
+
             logger.info(
                 f"System audio capture started via {self.capture_mode} "
                 f"(device {self.device_id}, sample_rate={self.sample_rate}, channels={self.channel_count})"
@@ -421,6 +684,9 @@ class SystemAudioCapture:
     def stop(self) -> None:
         """Stop capturing system audio."""
         self.running = False
+        if self.monitor:
+            self.monitor.stop()
+            self.monitor = None
         if self.stream:
             try:
                 self.stream.stop()
@@ -546,6 +812,18 @@ class MicrophoneCapture:
 
 
 
+def _get_sounddevice_name(device_id: Optional[int]) -> Optional[str]:
+    """Return a readable sounddevice name for status reporting."""
+    if not SOUNDDEVICE_AVAILABLE or device_id is None:
+        return None
+
+    try:
+        device = sd.query_devices(device_id)
+        return device.get("name")
+    except Exception:
+        return None
+
+
 class RealtimeTranscriber:
     """
     Real-time transcription engine with dual audio capture.
@@ -566,6 +844,7 @@ class RealtimeTranscriber:
     ):
         self.model_size = model_size
         self.language = language
+        self.mic_device = mic_device
         self.enable_system_audio = enable_system_audio
         self.enable_microphone = enable_microphone
         self.transcription_callback = transcription_callback
@@ -594,6 +873,61 @@ class RealtimeTranscriber:
         # Timing
         self.start_time: float = 0
         self.last_transcription_time: float = 0
+        self.active_capture_mode = "none"
+
+    def get_capture_mode(self) -> str:
+        """Return the audio sources that are currently active."""
+        system_active = self.system_capture is not None and self.system_capture.running
+        mic_active = self.mic_capture is not None and self.mic_capture.running
+
+        if system_active and mic_active:
+            return "system+microphone"
+        if system_active:
+            return "system-only"
+        if mic_active:
+            return "microphone-only"
+        return "none"
+
+    def get_capture_status(self) -> Dict[str, Any]:
+        """Return details about the currently active capture streams."""
+        system_status = {
+            "active": False,
+            "device_id": None,
+            "device_name": None,
+            "capture_mode": None,
+            "sample_rate": None,
+            "channels": None,
+        }
+        mic_status = {
+            "active": False,
+            "device_id": None,
+            "device_name": None,
+            "sample_rate": None,
+        }
+
+        if self.system_capture:
+            system_status.update({
+                "active": self.system_capture.running,
+                "device_id": self.system_capture.device_id,
+                "device_name": _get_sounddevice_name(self.system_capture.device_id),
+                "capture_mode": self.system_capture.capture_mode,
+                "sample_rate": self.system_capture.sample_rate,
+                "channels": self.system_capture.channel_count,
+            })
+
+        if self.mic_capture:
+            mic_status.update({
+                "active": self.mic_capture.running,
+                "device_id": self.mic_capture.device,
+                "device_name": _get_sounddevice_name(self.mic_capture.device),
+                "sample_rate": self.mic_capture.sample_rate,
+            })
+
+        return {
+            "mode": self.get_capture_mode(),
+            "system_audio": system_status,
+            "microphone": mic_status,
+        }
 
     def load_model(self) -> bool:
         """Initialize mlx-whisper for GPU-accelerated transcription on Apple Silicon."""
@@ -674,7 +1008,7 @@ class RealtimeTranscriber:
                 self.system_buffer = AudioBuffer(sample_rate=self.system_capture.sample_rate)
 
         if self.enable_microphone:
-            self.mic_capture = MicrophoneCapture()
+            self.mic_capture = MicrophoneCapture(device=self.mic_device)
             if not self.mic_capture.start():
                 logger.warning("Microphone capture not available")
                 self.mic_capture = None
@@ -697,7 +1031,8 @@ class RealtimeTranscriber:
         self.transcription_thread = threading.Thread(target=self._transcription_loop, daemon=True)
         self.transcription_thread.start()
 
-        logger.info("Real-time transcription started")
+        self.active_capture_mode = self.get_capture_mode()
+        logger.info(f"Real-time transcription started ({self.active_capture_mode})")
         return True
 
     def stop(self) -> List[TranscriptSegment]:
@@ -722,6 +1057,7 @@ class RealtimeTranscriber:
         self._drain_pending_capture_audio()
         self._flush_pending_buffers(reference_time=shutdown_time)
 
+        self.active_capture_mode = "none"
         logger.info("Real-time transcription stopped")
 
         with self.segments_lock:
@@ -1080,6 +1416,76 @@ class LiveTranscriptLogger:
 
         logger.info(f"Live transcript finalized: {self.log_file}")
         return str(self.log_file)
+
+
+def detect_capture_capabilities() -> Dict[str, Any]:
+    """
+    Inspect configured audio devices without loading Whisper or starting transcription.
+
+    This reports whether the app can attempt microphone and system-audio capture.
+    It cannot guarantee speech will be present; virtual-cable setups still need the
+    meeting app or system output routed into the cable.
+    """
+    capabilities: Dict[str, Any] = {
+        "sounddevice": SOUNDDEVICE_AVAILABLE,
+        "system_audio": {
+            "available": False,
+            "device_id": None,
+            "device_name": None,
+            "capture_mode": None,
+            "sample_rate": None,
+            "channels": None,
+            "note": None,
+        },
+        "microphone": {
+            "available": False,
+            "device_id": None,
+            "device_name": None,
+            "sample_rate": None,
+            "note": None,
+        },
+    }
+
+    if not SOUNDDEVICE_AVAILABLE:
+        capabilities["system_audio"]["note"] = "sounddevice is not installed"
+        capabilities["microphone"]["note"] = "sounddevice is not installed"
+        return capabilities
+
+    try:
+        system_capture = SystemAudioCapture()
+        system_available = system_capture.device_id is not None
+        system_note = None
+        if sys.platform.startswith("win") and system_capture.capture_mode == "virtual-cable":
+            system_note = "route meeting audio to VB-Cable/CABLE Input for speaker capture"
+        elif not system_available:
+            system_note = "no system-audio capture device found"
+
+        capabilities["system_audio"].update({
+            "available": system_available,
+            "device_id": system_capture.device_id,
+            "device_name": _get_sounddevice_name(system_capture.device_id),
+            "capture_mode": system_capture.capture_mode,
+            "sample_rate": system_capture.sample_rate,
+            "channels": system_capture.channel_count,
+            "note": system_note,
+        })
+    except Exception as e:
+        capabilities["system_audio"]["note"] = str(e)
+
+    try:
+        mic_capture = MicrophoneCapture()
+        mic_available = mic_capture.device is not None
+        capabilities["microphone"].update({
+            "available": mic_available,
+            "device_id": mic_capture.device,
+            "device_name": _get_sounddevice_name(mic_capture.device),
+            "sample_rate": mic_capture.sample_rate,
+            "note": None if mic_available else "no microphone input device found",
+        })
+    except Exception as e:
+        capabilities["microphone"]["note"] = str(e)
+
+    return capabilities
 
 
 

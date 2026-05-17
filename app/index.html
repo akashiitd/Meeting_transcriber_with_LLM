@@ -655,6 +655,12 @@
             border-color: rgba(34, 197, 94, 0.35);
         }
 
+        .capture-mode-badge.system-only {
+            color: #67e8f9;
+            background: rgba(6, 182, 212, 0.12);
+            border-color: rgba(6, 182, 212, 0.35);
+        }
+
         .capture-mode-badge.mic-only {
             color: #93c5fd;
             background: rgba(59, 130, 246, 0.12);
@@ -1724,6 +1730,12 @@ Session started - waiting for activity...
                 return;
             }
 
+            if (mode === 'system-only') {
+                captureModeBadge.classList.add('system-only');
+                captureModeBadge.textContent = 'Mode: system only';
+                return;
+            }
+
             captureModeBadge.classList.add('pending');
             captureModeBadge.textContent = uiState === 'recording' ? 'Starting audio...' : 'Waiting for audio...';
         }
@@ -1853,6 +1865,8 @@ Session started - waiting for activity...
                     log('🔊 Capture mode: system audio + microphone');
                 } else if (mode === 'microphone-only') {
                     log('🎤 Capture mode: microphone only');
+                } else if (mode === 'system-only') {
+                    log('🔊 Capture mode: system audio only');
                 }
             }
 

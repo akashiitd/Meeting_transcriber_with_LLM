@@ -102,6 +102,29 @@ npm install
 npm start
 ```
 
+### Windows Dual Audio Capture
+
+For Windows meetings, StenoAI can capture your microphone and the other speakers separately. The microphone is transcribed as `You`; speaker/system audio is transcribed as `Other`.
+
+Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) first. Then use this routing:
+
+- Browser or meeting app output: `CABLE Input (VB-Audio Virtual Cable)`
+- Windows microphone input: your real microphone, for example `Microphone (w200)`
+- StenoAI system capture source: `CABLE Output (VB-Audio Virtual Cable)`
+- `CABLE Output` Listen playback: your real headphones or speakers
+
+To set it up:
+
+1. Open **Settings > System > Sound > Volume mixer**.
+2. Set your browser or meeting app **Output device** to `CABLE Input (VB-Audio Virtual Cable)`.
+3. Press **Win + R**, run `mmsys.cpl`, and open the **Recording** tab.
+4. Select `CABLE Output (VB-Audio Virtual Cable)`, then open **Properties > Listen**.
+5. Enable **Listen to this device** and choose your real headphones/speakers under **Playback through this device**.
+6. Play meeting or YouTube audio and confirm the green level meter moves on `CABLE Output`.
+7. Start a new StenoAI recording. The live badge should show `Mode: system + mic`.
+
+If the transcript only shows `[You]` and logs say `Skipping near-silent system buffer`, the app opened VB-Cable but no speaker audio is reaching it. Recheck that the browser or meeting app output is set to `CABLE Input`.
+
 ### Build
 ```bash
 cd app

@@ -37,10 +37,16 @@ except ImportError:
     WhisperTranscriber = None
 
 try:
-    from src.realtime_transcriber import RealtimeTranscriber, create_realtime_transcriber, TranscriptSegment
+    from src.realtime_transcriber import (
+        RealtimeTranscriber,
+        create_realtime_transcriber,
+        detect_capture_capabilities,
+        TranscriptSegment,
+    )
 except ImportError:
     RealtimeTranscriber = None
     create_realtime_transcriber = None
+    detect_capture_capabilities = None
     TranscriptSegment = None
 
 # Setup logging
@@ -566,6 +572,8 @@ def status():
         print(f"Session: {state.get('session_name')}")
         print(f"File: {state.get('current_file')}")
         print(f"Started: {state.get('start_time')}")
+        if state.get("capture_mode"):
+            print(f"Capture: {state.get('capture_mode')}")
     else:
         print("STATUS: READY")
     
@@ -648,7 +656,8 @@ def record(duration, session_name):
                 "processed_at": datetime.now().isoformat(),
                 "duration_seconds": int(duration_seconds),
                 "duration_minutes": max(1, int(duration_seconds / 60)),
-                "mode": "transcription"
+                "mode": "transcription",
+                "capture_mode": capture_mode
             },
             "transcript_preview": " ".join(plain_transcript.split())[:240],
             "transcript": plain_transcript
@@ -755,9 +764,12 @@ def record(duration, session_name):
             if not transcriber.start():
                 print("❌ Failed to start transcription - check audio devices")
                 exit(1)
-            capture_mode = "microphone-only"
-        else:
-            capture_mode = "system+microphone"
+        capture_mode = transcriber.get_capture_mode()
+        capture_status = transcriber.get_capture_status()
+
+        state["capture_mode"] = capture_mode
+        state["capture_status"] = capture_status
+        recorder.save_state(state)
 
         recording_started = True
         start_time = time.time()
@@ -767,8 +779,21 @@ def record(duration, session_name):
         print("📢 Speak into your microphone now!")
         if capture_mode == "system+microphone":
             print("🔊 System audio will also be captured (meetings, videos, etc.)")
+        elif capture_mode == "system-only":
+            print("🔊 Running in system-audio-only mode")
+            print("⚠️ Microphone capture is not active")
         else:
             print("🎤 Running in microphone-only mode")
+            print("⚠️ System audio capture is not active")
+
+        system_status = capture_status.get("system_audio", {})
+        mic_status = capture_status.get("microphone", {})
+        if system_status.get("active"):
+            system_device = system_status.get("device_name") or system_status.get("device_id")
+            print(f"SYSTEM_AUDIO_DEVICE: {system_device} ({system_status.get('capture_mode')})")
+        if mic_status.get("active"):
+            mic_device = mic_status.get("device_name") or mic_status.get("device_id")
+            print(f"MICROPHONE_DEVICE: {mic_device}")
         print("=" * 50)
 
         # For very long durations, wait indefinitely
@@ -1054,6 +1079,29 @@ def setup_check():
         checks.append(("✅ sounddevice", "audio recording"))
     except ImportError:
         checks.append(("❌ sounddevice", "pip install sounddevice"))
+
+    if detect_capture_capabilities:
+        try:
+            capture_caps = detect_capture_capabilities()
+            mic_caps = capture_caps.get("microphone", {})
+            system_caps = capture_caps.get("system_audio", {})
+
+            if mic_caps.get("available"):
+                mic_name = mic_caps.get("device_name") or mic_caps.get("device_id")
+                checks.append(("✅ microphone", f"found {mic_name}"))
+            else:
+                checks.append(("❌ microphone", mic_caps.get("note") or "not found"))
+
+            if system_caps.get("available"):
+                system_name = system_caps.get("device_name") or system_caps.get("device_id")
+                detail = f"found {system_name} via {system_caps.get('capture_mode')}"
+                if system_caps.get("note"):
+                    detail = f"{detail} - {system_caps.get('note')}"
+                checks.append(("✅ system audio", detail))
+            else:
+                checks.append(("⚠️ system audio", system_caps.get("note") or "not found"))
+        except Exception as e:
+            checks.append(("⚠️ system audio", f"could not inspect capture devices: {e}"))
     
     try:
         import whisper
